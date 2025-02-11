@@ -1,5 +1,6 @@
-import {google } from 'googleapis';
+import { google } from 'googleapis';
 import * as dotenv from 'dotenv';
+import { App } from '@slack/bolt';
 
 dotenv.config();
 
@@ -10,7 +11,7 @@ type GoogleUser = {
       GitHub_Username?: string;
     } | null;
   } | null;
-}
+};
 
 class WorkspaceGitHubSync {
   private readonly auth;
@@ -21,7 +22,7 @@ class WorkspaceGitHubSync {
       scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
       clientOptions: {
         subject: process.env.GOOGLE_ADMIN_EMAIL, // impersonate the admin user
-      }
+      },
     });
   }
 
@@ -32,18 +33,26 @@ class WorkspaceGitHubSync {
       // get all users with GitHub usernames
       const workspaceGitHubUsers = new Set(
         workspaceUsers
-          .filter(user => !!user.customSchemas && user.customSchemas["3rd-party_tools"]?.GitHub_Username)
-          .map(user => user.customSchemas!["3rd-party_tools"]!.GitHub_Username!)
+          .filter(
+            (user) =>
+              !!user.customSchemas &&
+              user.customSchemas['3rd-party_tools']?.GitHub_Username,
+          )
+          .map(
+            (user) => user.customSchemas!['3rd-party_tools']!.GitHub_Username!,
+          ),
       );
-    }
-    catch (e) {
+    } catch (e) {
       console.error('Error during synchronization', e);
       throw e;
     }
   }
 
   async getWorkspaceUsers(): Promise<GoogleUser[]> {
-    const directory = google.admin({ version: 'directory_v1', auth: this.auth });
+    const directory = google.admin({
+      version: 'directory_v1',
+      auth: this.auth,
+    });
 
     try {
       const response = await directory.users.list({
@@ -60,9 +69,24 @@ class WorkspaceGitHubSync {
   }
 }
 
-async function main() {
-  const sync = new WorkspaceGitHubSync();
-  await sync.syncMembers();
-}
+const slackApp = new App({
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  token: process.env.SLACK_BOT_TOKEN,
+  appToken: process.env.SLACK_APP_TOKEN,
+  socketMode: true,
+});
 
-main().catch(console.error);
+slackApp.command('/sync-github', async ({ ack, respond }) => {
+  console.debug('Received /sync-github command');
+  await ack();
+
+  try {
+    await respond('Syncing GitHub usernames with Google Workspace...');
+  } catch (error) {
+    await respond('Error during sync');
+    console.error('Error during sync', error);
+  }
+});
+
+await slackApp.start(process.env.PORT || 3000);
+console.log('⚡️ Slack bot is running!');
