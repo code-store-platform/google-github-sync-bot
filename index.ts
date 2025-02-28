@@ -29,8 +29,13 @@ class WorkspaceGitHubSync {
     process.env.REMOVE_STOP_LIST?.split(',') || [];
 
   constructor() {
+    const keysEnvVar = process.env['GOOGLE_APPLICATION_CREDENTIALS'];
+    if (!keysEnvVar) {
+      throw new Error('The $CREDS environment variable was not found!');
+    }
+    const keys = JSON.parse(keysEnvVar);
     this.auth = new google.auth.GoogleAuth({
-      keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      credentials: keys,
       scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
       clientOptions: {
         subject: process.env.GOOGLE_ADMIN_EMAIL, // impersonate the admin user
