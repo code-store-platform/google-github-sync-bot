@@ -1,7 +1,8 @@
 import { google } from 'googleapis';
 import * as dotenv from 'dotenv';
-import { App } from '@slack/bolt';
+import { App, type RespondArguments } from '@slack/bolt';
 import { Octokit } from 'octokit';
+import { CronJob } from 'cron';
 
 dotenv.config();
 
@@ -69,10 +70,19 @@ class WorkspaceGitHubSync {
       for (const username of workspaceGitHubUsernames) {
         if (!currentMembers.has(username) && !pendingInvites.has(username)) {
           try {
-            // await this.octokit.rest.orgs.createInvitation({
-            //   org: this.orgName,
-            //   username,
-            // });
+            const user = await this.octokit.rest.users.getByUsername({
+              username,
+            });
+            if (!user.data.id) {
+              console.error(user);
+              throw new Error(`User ${username} not found on GitHub`);
+            }
+
+            await this.octokit.rest.orgs.createInvitation({
+              org: this.orgName,
+              invitee_id: user.data.id,
+            });
+
             syncResult.invited.push(username);
           } catch (e) {
             syncResult.errors.push(`Error inviting ${username}`);
@@ -88,10 +98,10 @@ class WorkspaceGitHubSync {
           !this.removeStopList.includes(member)
         ) {
           try {
-            // await this.octokit.rest.orgs.removeMember({
-            //   org: this.orgName,
-            //   username: member,
-            // });
+            await this.octokit.rest.orgs.removeMember({
+              org: this.orgName,
+              username: member,
+            });
             syncResult.removed.push(member);
           } catch (e) {
             syncResult.errors.push(`Error removing ${member}`);
@@ -181,83 +191,129 @@ slackApp.command('/sync-github', async ({ ack, respond }) => {
 
   try {
     const results = await sync.syncMembers();
-    const formattedMessages = [
-      ...results.invited.map(
-        (username) =>
-          `Invited: <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
-      ),
-      ...results.removed.map((username) => `Removed: ${username}`),
-      ...results.errors.map((msg) => `Error: ${msg}`),
-    ];
 
-    const invitedMessageBlock = {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text:
-          '*Invited users:*\n' +
-          results.invited
-            .map(
-              (username) =>
-                `* <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
-            )
-            .join('\n'),
-      },
-    };
-    const removedMessageBlock = {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text:
-          '*Removed users:*\n' +
-          results.removed
-            .map(
-              (username) =>
-                `* <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
-            )
-            .join('\n'),
-      },
-    };
-    const errorsMessageBlock = {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text:
-          '*Errors:*\n' + results.errors.map((msg) => `* ${msg}`).join('\n'),
-      },
-    };
-
-    const blocks = [];
-    if (results.invited.length > 0) {
-      blocks.push(invitedMessageBlock);
+    if (
+      results.invited.length === 0 &&
+      results.removed.length === 0 &&
+      results.errors.length === 0
+    ) {
+      await respond('No changes detected');
+    } else {
+      const msg = formatMessages(results);
+      await respond(msg);
     }
-    if (results.removed.length > 0) {
-      blocks.push(removedMessageBlock);
-    }
-    if (results.errors.length > 0) {
-      blocks.push(errorsMessageBlock);
-    }
-    await respond({
-      text: 'Sync completed! Here are the results:',
-      blocks: [
-        {
-          type: 'header',
-          text: {
-            type: 'plain_text',
-            text: 'Sync results',
-          },
-        },
-        ...blocks,
-        {
-          type: 'divider',
-        },
-      ],
-    });
   } catch (error) {
     await respond('Error during sync');
     console.error('Error during sync', error);
   }
 });
 
+function formatMessages(results: SyncResult) {
+  const invitedMessageBlock = {
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text:
+        '*Invited users:*\n' +
+        results.invited
+          .map(
+            (username) =>
+              `* <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
+          )
+          .join('\n'),
+    },
+  };
+  const removedMessageBlock = {
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text:
+        '*Removed users:*\n' +
+        results.removed
+          .map(
+            (username) =>
+              `* <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
+          )
+          .join('\n'),
+    },
+  };
+  const errorsMessageBlock = {
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: '*Errors:*\n' + results.errors.map((msg) => `* ${msg}`).join('\n'),
+    },
+  };
+
+  const blocks = [];
+  if (results.invited.length > 0) {
+    blocks.push(invitedMessageBlock);
+  }
+  if (results.removed.length > 0) {
+    blocks.push(removedMessageBlock);
+  }
+  if (results.errors.length > 0) {
+    blocks.push(errorsMessageBlock);
+  }
+
+  return {
+    text: 'Sync completed! Here are the results:',
+    blocks: [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: 'Sync results',
+        },
+      },
+      ...blocks,
+      {
+        type: 'divider',
+      },
+    ],
+  };
+}
+
+async function syncPeriodically() {
+  const results = await sync.syncMembers();
+  const users = await slackApp.client.users.conversations({
+    exclude_archived: true,
+    types: 'im',
+  });
+
+  if (
+    users.ok &&
+    users.channels?.length &&
+    users.channels.length > 1 &&
+    (results.invited.length > 0 ||
+      results.removed.length > 0 ||
+      results.errors.length > 0)
+  ) {
+    const userString = users
+      .channels!.filter((channel) => channel.user !== 'USLACKBOT')
+      .map((channel) => channel.user)
+      .join(',');
+    const conversation = await slackApp.client.conversations.open({
+      users: userString,
+    });
+    const channelId = conversation.channel?.id || '';
+    const msg = formatMessages(results);
+    await slackApp.client.chat.postMessage({
+      token: process.env.SLACK_BOT_TOKEN,
+      channel: channelId,
+      text: 'GitHub Synchronization results',
+      blocks: msg.blocks,
+    });
+  }
+}
+
 await slackApp.start(process.env.PORT || 3000);
 console.log('⚡️ Slack bot is running!');
+
+const cronJob = new CronJob(
+  process.env.CRON_SCHEDULE || '0 0 0 * * *',
+  syncPeriodically,
+  null,
+  true,
+);
+cronJob.start();
