@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 import * as dotenv from 'dotenv';
-import { App, type RespondArguments } from '@slack/bolt';
+import { App } from '@slack/bolt';
 import { Octokit } from 'octokit';
 import { CronJob } from 'cron';
 
@@ -214,6 +214,7 @@ slackApp.command('/sync-github', async ({ ack, respond }) => {
 });
 
 function formatMessages(results: SyncResult) {
+  const gitHubOrgName = process.env.GITHUB_ORG_NAME;
   const invitedMessageBlock = {
     type: 'section',
     text: {
@@ -223,7 +224,7 @@ function formatMessages(results: SyncResult) {
         results.invited
           .map(
             (username) =>
-              `* <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
+              `* <https://github.com/orgs/${gitHubOrgName}/people/${username}|${username}>`,
           )
           .join('\n'),
     },
@@ -237,7 +238,7 @@ function formatMessages(results: SyncResult) {
         results.removed
           .map(
             (username) =>
-              `* <https://github.com/orgs/code-store-platform/people/${username}|${username}>`,
+              `* <https://github.com/orgs/${gitHubOrgName}/people/${username}|${username}>`,
           )
           .join('\n'),
     },
