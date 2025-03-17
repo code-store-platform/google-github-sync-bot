@@ -16,9 +16,13 @@ type GoogleUser = {
 };
 
 type SyncResult = {
-  invited: string[];
+  invited: SyncResultUser[];
   removed: string[];
   errors: string[];
+};
+type SyncResultUser = {
+  username: string;
+  email: string;
 };
 
 class WorkspaceGitHubSync {
@@ -78,7 +82,7 @@ class WorkspaceGitHubSync {
             const user = await this.octokit.rest.users.getByUsername({
               username,
             });
-            if (!user.data.id) {
+            if (!user.data.id || !user.data.email) {
               console.error(user);
               throw new Error(`User ${username} not found on GitHub`);
             }
@@ -88,7 +92,7 @@ class WorkspaceGitHubSync {
               invitee_id: user.data.id,
             });
 
-            syncResult.invited.push(username);
+            syncResult.invited.push({ username, email: user.data.email });
           } catch (e) {
             syncResult.errors.push(`Error inviting ${username}`);
             console.error('Error inviting user', e);
@@ -223,8 +227,8 @@ function formatMessages(results: SyncResult) {
         '*Invited users:*\n' +
         results.invited
           .map(
-            (username) =>
-              `* <https://github.com/orgs/${gitHubOrgName}/people/${username}|${username}>`,
+            ({ username, email }) =>
+              `* <https://github.com/orgs/${gitHubOrgName}/people/${username}|${username}> – ${email}`,
           )
           .join('\n'),
     },
