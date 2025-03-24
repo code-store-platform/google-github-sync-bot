@@ -83,8 +83,18 @@ class WorkspaceGitHubSync {
               username,
             });
             if (!user.data.id || !user.data.email) {
+              const userEmail = workspaceUsers.find(
+                (u) =>
+                  u.customSchemas?.[
+                    '3rd-party_tools'
+                  ]?.GitHub_Username?.toLowerCase() === username,
+              )?.customSchemas?.['3rd-party_tools']?.GitHub_Username;
+
               console.error(user);
-              throw new Error(`User ${username} not found on GitHub`);
+              syncResult.errors.push(
+                `User ${username} with email ${userEmail} not found on GitHub`,
+              );
+              continue;
             }
 
             await this.octokit.rest.orgs.createInvitation({
