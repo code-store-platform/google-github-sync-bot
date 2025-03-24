@@ -88,7 +88,7 @@ class WorkspaceGitHubSync {
                   u.customSchemas?.[
                     '3rd-party_tools'
                   ]?.GitHub_Username?.toLowerCase() === username,
-              )?.customSchemas?.['3rd-party_tools']?.GitHub_Username;
+              )?.primaryEmail;
 
               console.error(user);
               syncResult.errors.push(
