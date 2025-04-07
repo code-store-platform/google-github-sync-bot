@@ -82,15 +82,14 @@ class WorkspaceGitHubSync {
             const user = await this.octokit.rest.users.getByUsername({
               username,
             });
-            if (!user.data.id || !user.data.email) {
-              const userEmail = workspaceUsers.find(
-                (u) =>
-                  u.customSchemas?.[
-                    '3rd-party_tools'
-                  ]?.GitHub_Username?.toLowerCase() === username,
-              )?.primaryEmail;
+            const userEmail = workspaceUsers.find(
+              (u) =>
+                u.customSchemas?.[
+                  '3rd-party_tools'
+                ]?.GitHub_Username?.toLowerCase() === username,
+            )?.primaryEmail;
 
-              console.error(user);
+            if (!user.data.id || !user.data.email || !userEmail) {
               syncResult.errors.push(
                 `User ${username} with email ${userEmail} not found on GitHub`,
               );
@@ -102,7 +101,7 @@ class WorkspaceGitHubSync {
               invitee_id: user.data.id,
             });
 
-            syncResult.invited.push({ username, email: user.data.email });
+            syncResult.invited.push({ username, email: userEmail });
           } catch (e) {
             syncResult.errors.push(`Error inviting ${username}`);
             console.error('Error inviting user', e);
