@@ -89,7 +89,7 @@ class WorkspaceGitHubSync {
                 ]?.GitHub_Username?.toLowerCase() === username,
             )?.primaryEmail;
 
-            if (!user.data.id || !user.data.email || !userEmail) {
+            if (!user.data.id || !userEmail) {
               syncResult.errors.push(
                 `User ${username} with email ${userEmail} not found on GitHub`,
               );
