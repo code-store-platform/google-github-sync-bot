@@ -146,7 +146,7 @@ class WorkspaceGitHubSync {
         customer: 'my_customer',
         projection: 'full',
         viewType: 'admin_view',
-        maxResults: 100,
+        maxResults: 300,
       });
 
       return response.data.users || [];
