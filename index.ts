@@ -145,7 +145,8 @@ class WorkspaceGitHubSync {
       const response = await directory.users.list({
         customer: 'my_customer',
         projection: 'full',
-        viewType: 'domain_public',
+        viewType: 'admin_view',
+        maxResults: 100,
       });
 
       return response.data.users || [];
