@@ -1,5 +1,6 @@
 import { Octokit } from 'octokit';
 import { envVars } from '../lib/config.ts';
+import { normalizeGitHubUsername } from '../lib/utils.js';
 import { createGoogleAuth, getWorkspaceUsers } from './google-workspace.js';
 
 export type SyncResult = {
@@ -43,7 +44,9 @@ export class WorkspaceGitHubSync {
             (user) =>
               !!user.customSchemas && user.customSchemas['3rd-party_tools']?.GitHub_Username,
           )
-          .map((user) => user.customSchemas!['3rd-party_tools']!.GitHub_Username!.toLowerCase()),
+          .map((user) =>
+            normalizeGitHubUsername(user.customSchemas!['3rd-party_tools']!.GitHub_Username!),
+          ),
       );
 
       // add users with GitHub usernames to the org
@@ -53,10 +56,10 @@ export class WorkspaceGitHubSync {
             const user = await this.octokit.rest.users.getByUsername({
               username,
             });
-            const userEmail = workspaceUsers.find(
-              (u) =>
-                u.customSchemas?.['3rd-party_tools']?.GitHub_Username?.toLowerCase() === username,
-            )?.primaryEmail;
+            const userEmail = workspaceUsers.find((u) => {
+              const ghUsername = u.customSchemas?.['3rd-party_tools']?.GitHub_Username;
+              return ghUsername ? normalizeGitHubUsername(ghUsername) === username : false;
+            })?.primaryEmail;
 
             if (!user.data.id || !userEmail) {
               syncResult.errors.push(
@@ -108,7 +111,7 @@ export class WorkspaceGitHubSync {
         per_page: 100,
       });
 
-      return new Set(members.map((member) => member.login.toLowerCase()));
+      return new Set(members.map((member) => normalizeGitHubUsername(member.login)));
     } catch (error) {
       console.error('Error fetching GitHub members', error);
       throw error;
@@ -123,7 +126,9 @@ export class WorkspaceGitHubSync {
       });
 
       return new Set(
-        invites.filter((invite) => invite.login).map((invite) => invite.login!.toLowerCase()),
+        invites
+          .filter((invite) => invite.login)
+          .map((invite) => normalizeGitHubUsername(invite.login!)),
       );
     } catch (error) {
       console.error('Error fetching GitHub invites', error);
