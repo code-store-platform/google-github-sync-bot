@@ -1,7 +1,8 @@
+import { envVars } from '../lib/config.ts';
 import type { SyncResult } from './github-sync.js';
 
 export function formatMessages(results: SyncResult) {
-  const gitHubOrgName = process.env.GITHUB_ORG_NAME;
+  const gitHubOrgName = envVars.GITHUB_ORG_NAME;
   const invitedMessageBlock = {
     type: 'section',
     text: {

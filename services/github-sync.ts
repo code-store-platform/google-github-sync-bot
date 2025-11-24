@@ -1,4 +1,5 @@
 import { Octokit } from 'octokit';
+import { envVars } from '../lib/config.ts';
 import { createGoogleAuth, getWorkspaceUsers } from './google-workspace.js';
 
 export type SyncResult = {
@@ -16,16 +17,16 @@ export class WorkspaceGitHubSync {
   private readonly auth;
   private octokit: Octokit;
   private readonly orgName: string;
-  private removeStopList: string[] = process.env.REMOVE_STOP_LIST?.split(',') || [];
+  private removeStopList: string[] = envVars.REMOVE_STOP_LIST;
 
   constructor() {
     this.auth = createGoogleAuth();
 
     this.octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
+      auth: envVars.GITHUB_TOKEN,
     });
 
-    this.orgName = process.env.GITHUB_ORG_NAME!;
+    this.orgName = envVars.GITHUB_ORG_NAME;
   }
 
   async syncMembers(): Promise<SyncResult> {

@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { envVars } from '../lib/config.ts';
 
 export type GoogleUser = {
   primaryEmail?: string | null;
@@ -10,18 +11,11 @@ export type GoogleUser = {
 };
 
 export function createGoogleAuth() {
-  const keysEnvVar = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!keysEnvVar) {
-    throw new Error('The $GOOGLE_APPLICATION_CREDENTIALS environment variable was not found!');
-  }
-
-  const keys = JSON.parse(keysEnvVar);
-
   return new google.auth.GoogleAuth({
-    credentials: keys,
+    credentials: JSON.parse(envVars.GOOGLE_APPLICATION_CREDENTIALS),
     scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
     clientOptions: {
-      subject: process.env.GOOGLE_ADMIN_EMAIL, // impersonate the admin user
+      subject: envVars.GOOGLE_ADMIN_EMAIL, // impersonate the admin user
     },
   });
 }

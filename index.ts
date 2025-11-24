@@ -1,15 +1,16 @@
 import { App } from '@slack/bolt';
 import { CronJob } from 'cron';
 import * as dotenv from 'dotenv';
+import { envVars } from './lib/config.js';
 import { WorkspaceGitHubSync } from './services/github-sync.js';
 import { formatMessages } from './services/slack-notifier.js';
 
 dotenv.config();
 
 const slackApp = new App({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  token: process.env.SLACK_BOT_TOKEN,
-  appToken: process.env.SLACK_APP_TOKEN,
+  signingSecret: envVars.SLACK_SIGNING_SECRET,
+  token: envVars.SLACK_BOT_TOKEN,
+  appToken: envVars.SLACK_APP_TOKEN,
   socketMode: true,
 });
 
@@ -61,7 +62,7 @@ async function syncPeriodically() {
     const channelId = conversation.channel?.id || '';
     const msg = formatMessages(results);
     await slackApp.client.chat.postMessage({
-      token: process.env.SLACK_BOT_TOKEN,
+      token: envVars.SLACK_BOT_TOKEN,
       channel: channelId,
       text: 'GitHub Synchronization results',
       blocks: msg.blocks,
@@ -69,13 +70,8 @@ async function syncPeriodically() {
   }
 }
 
-await slackApp.start(process.env.PORT || 3000);
+await slackApp.start(envVars.PORT);
 console.log('⚡️ Slack bot is running!');
 
-const cronJob = new CronJob(
-  process.env.CRON_SCHEDULE || '0 0 0 * * *',
-  syncPeriodically,
-  null,
-  true,
-);
+const cronJob = new CronJob(envVars.CRON_SCHEDULE, syncPeriodically, null, true);
 cronJob.start();

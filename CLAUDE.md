@@ -31,18 +31,39 @@ docker run -d google-github-sync
 
 ## Architecture
 
-This is a single-file TypeScript application (`index.ts`) that runs continuously with three main components:
+The application is organized into modular services with centralized configuration:
 
-1. **WorkspaceGitHubSync class**: Core synchronization logic
+**File Structure:**
+```
+config.ts                      - Centralized configuration with validation
+services/
+  ├── google-workspace.ts      - Google Workspace API integration
+  ├── github-sync.ts           - GitHub sync logic (WorkspaceGitHubSync class)
+  └── slack-notifier.ts        - Slack message formatting
+index.ts                       - Application bootstrap, Slack bot, cron job
+```
+
+**Main Components:**
+
+1. **Configuration Module (`config.ts`)**:
+   - Validates all required environment variables at startup
+   - Exports typed configuration object organized by service (google, github, slack, app)
+   - Fails fast with descriptive errors if required variables are missing
+   - Parses Google credentials JSON automatically
+
+2. **WorkspaceGitHubSync class (`services/github-sync.ts`)**:
+   - Core synchronization logic
    - Fetches Google Workspace users via Google Admin SDK API
    - Manages GitHub organization membership via Octokit
    - Handles invitations and removals based on custom schema field `3rd-party_tools.GitHub_Username`
 
-2. **Slack Bot**: Built with @slack/bolt using Socket Mode
+3. **Slack Bot (`index.ts`)**:
+   - Built with @slack/bolt using Socket Mode
    - Listens for `/sync-github` slash command for manual sync triggers
    - Posts formatted sync results with user links and email addresses
 
-3. **Cron Job**: Scheduled synchronization
+4. **Cron Job (`index.ts`)**:
+   - Scheduled synchronization
    - Uses `cron` package with configurable schedule
    - Automatically notifies Slack DM group when changes occur
    - Only sends notifications when there are actual changes (invites, removals, or errors)
@@ -84,6 +105,8 @@ This is a single-file TypeScript application (`index.ts`) that runs continuously
 
 ## Environment Configuration
 
+All configuration is centralized in `config.ts` which validates environment variables at startup and provides typed access throughout the application. The application will fail fast with descriptive error messages if required variables are missing.
+
 Required environment variables in `.env`:
 - `GOOGLE_APPLICATION_CREDENTIALS`: JSON string of service account credentials
 - `GOOGLE_ADMIN_EMAIL`: Admin email to impersonate
@@ -92,9 +115,9 @@ Required environment variables in `.env`:
 - `SLACK_BOT_TOKEN`: Bot user OAuth token (xoxb-)
 - `SLACK_SIGNING_SECRET`: Slack app signing secret
 - `SLACK_APP_TOKEN`: App-level token for Socket Mode (xapp-)
-- `REMOVE_STOP_LIST`: Comma-separated GitHub usernames to never remove
-- `CRON_SCHEDULE`: Cron schedule string (defaults to midnight daily)
-- `PORT`: Optional port for Slack app (defaults to 3000)
+- `REMOVE_STOP_LIST`: Comma-separated GitHub usernames to never remove (optional)
+- `CRON_SCHEDULE`: Cron schedule string (optional, defaults to midnight daily)
+- `PORT`: Port for Slack app (optional, defaults to 3000)
 
 ## Runtime
 
