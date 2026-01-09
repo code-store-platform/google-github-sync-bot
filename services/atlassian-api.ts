@@ -1,9 +1,9 @@
-import { envVars } from "../lib/config.js";
+import { envVars } from '../lib/config.js';
 
 export type AtlassianUser = {
   account_id: string;
   email: string;
-  account_status: "active" | "inactive" | "closed";
+  account_status: 'active' | 'inactive' | 'closed';
   name?: string;
   added_to_org?: string; // ISO timestamp when user was added to organization
 };
@@ -24,17 +24,10 @@ export type UserLastActiveData = {
   };
 };
 
-type AtlassianUsersResponse = {
-  data: AtlassianUser[];
-  links?: {
-    next?: string;
-  };
-};
-
 export class AtlassianApiClient {
   private readonly orgId: string;
   private readonly authHeader: string;
-  private readonly baseUrl = "https://api.atlassian.com";
+  private readonly baseUrl = 'https://api.atlassian.com';
   private directoryId: string | null = null;
 
   constructor() {
@@ -57,32 +50,29 @@ export class AtlassianApiClient {
 
     try {
       const response = await fetch(url, {
-        method: "GET",
+        method: 'GET',
         headers: {
           Authorization: this.authHeader,
-          "Content-Type": "application/json",
-          Accept: "application/json",
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Failed to fetch directories: ${response.status} ${errorText}`,
-        );
+        throw new Error(`Failed to fetch directories: ${response.status} ${errorText}`);
       }
 
-      const data: { data: { directoryId: string; name: string }[] } =
-        await response.json();
+      const data: { data: { directoryId: string; name: string }[] } = await response.json();
 
       if (!data.data || data.data.length === 0) {
-        throw new Error("No directories found for organization");
+        throw new Error('No directories found for organization');
       }
 
       this.directoryId = data.data[0].directoryId;
       return this.directoryId;
     } catch (error) {
-      console.error("Error fetching directory ID", error);
+      console.error('Error fetching directory ID', error);
       throw error;
     }
   }
@@ -106,19 +96,17 @@ export class AtlassianApiClient {
           : baseApiUrl;
 
         const response = await fetch(url, {
-          method: "GET",
+          method: 'GET',
           headers: {
             Authorization: this.authHeader,
-            "Content-Type": "application/json",
-            Accept: "application/json",
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
           },
         });
 
         if (!response.ok) {
           const errorText = await response.text();
-          throw new Error(
-            `Failed to fetch Atlassian users: ${response.status} ${errorText}`,
-          );
+          throw new Error(`Failed to fetch Atlassian users: ${response.status} ${errorText}`);
         }
 
         const data: any = await response.json();
@@ -129,8 +117,7 @@ export class AtlassianApiClient {
           email: user.email,
           // In v2 API: accountStatus is "active" or "inactive", membershipStatus is "active" or "suspended"
           // We care about membershipStatus since that indicates if they have access to resources
-          account_status:
-            user.membershipStatus === "active" ? "active" : "inactive",
+          account_status: user.membershipStatus === 'active' ? 'active' : 'inactive',
           name: user.name,
           added_to_org: user.addedToOrg,
         }));
@@ -144,7 +131,7 @@ export class AtlassianApiClient {
       console.log(`Fetched ${users.length} users from Atlassian API`);
       return users;
     } catch (error) {
-      console.error("Error fetching Atlassian organization users", error);
+      console.error('Error fetching Atlassian organization users', error);
       throw error;
     }
   }
@@ -158,11 +145,11 @@ export class AtlassianApiClient {
 
     try {
       const response = await fetch(url, {
-        method: "GET",
+        method: 'GET',
         headers: {
           Authorization: this.authHeader,
-          "Content-Type": "application/json",
-          Accept: "application/json",
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
       });
 
@@ -175,10 +162,7 @@ export class AtlassianApiClient {
 
       return await response.json();
     } catch (error) {
-      console.error(
-        `Error fetching last active data for user ${accountId}`,
-        error,
-      );
+      console.error(`Error fetching last active data for user ${accountId}`, error);
       throw error;
     }
   }
@@ -192,22 +176,20 @@ export class AtlassianApiClient {
 
     try {
       const response = await fetch(url, {
-        method: "POST",
+        method: 'POST',
         headers: {
           Authorization: this.authHeader,
-          "Content-Type": "application/json",
-          Accept: "application/json",
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify({
-          message: "Suspended by automated license management system",
+          message: 'Suspended by automated license management system',
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Failed to suspend user ${accountId}: ${response.status} ${errorText}`,
-        );
+        throw new Error(`Failed to suspend user ${accountId}: ${response.status} ${errorText}`);
       }
     } catch (error) {
       console.error(`Error suspending user ${accountId}`, error);
@@ -225,19 +207,17 @@ export class AtlassianApiClient {
 
     try {
       const response = await fetch(url, {
-        method: "POST",
+        method: 'POST',
         headers: {
           Authorization: this.authHeader,
-          "Content-Type": "application/json",
-          Accept: "application/json",
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Failed to delete user ${accountId}: ${response.status} ${errorText}`,
-        );
+        throw new Error(`Failed to delete user ${accountId}: ${response.status} ${errorText}`);
       }
     } catch (error) {
       console.error(`Error deleting user ${accountId}`, error);
