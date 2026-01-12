@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { envVars } from '../lib/config.ts';
+import { envVars } from '../lib/config';
 
 export type GoogleUser = {
   primaryEmail?: string | null;

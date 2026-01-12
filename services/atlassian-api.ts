@@ -1,4 +1,4 @@
-import { envVars } from '../lib/config.js';
+import { envVars } from '../lib/config';
 
 export type AtlassianUser = {
   account_id: string;
@@ -35,6 +35,66 @@ export class AtlassianApiClient {
 
     // Create Bearer token header for Atlassian Admin API
     this.authHeader = `Bearer ${envVars.ATLASSIAN_API_KEY}`;
+  }
+
+  /**
+   * Executes an API operation with exponential backoff retry logic.
+   * Retries up to 3 times with delays: 1s, 2s, 4s (max total: ~7 seconds)
+   *
+   * @param operation - Async function to execute
+   * @param operationName - Name for logging purposes
+   * @returns Result of the operation
+   * @throws Error if all retries are exhausted
+   */
+  private async withRetry<T>(operation: () => Promise<T>, operationName: string): Promise<T> {
+    const MAX_RETRIES = 3;
+    const BASE_DELAY_MS = 1000; // 1 second
+
+    let lastError: Error | undefined;
+
+    // Loop is bounded: attempt goes from 0 to MAX_RETRIES (inclusive)
+    // Total attempts: 4 (initial + 3 retries)
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+
+        // Check if this is the last attempt
+        if (attempt === MAX_RETRIES) {
+          console.error(`${operationName} failed after ${MAX_RETRIES} retries`, error);
+          throw error;
+        }
+
+        // Check if error is retryable (rate limit, timeout, connection errors)
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isRetryable =
+          errorMsg.includes('429') ||
+          errorMsg.includes('rate limit') ||
+          errorMsg.includes('timeout') ||
+          errorMsg.includes('ECONNRESET') ||
+          errorMsg.includes('ETIMEDOUT');
+
+        if (!isRetryable) {
+          console.error(`${operationName} failed with non-retryable error`, error);
+          throw error;
+        }
+
+        // Calculate exponential backoff delay: 1s, 2s, 4s
+        const delayMs = BASE_DELAY_MS * 2 ** attempt;
+
+        console.log(
+          `${operationName} failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}). ` +
+            `Retrying in ${delayMs}ms...`,
+        );
+
+        // Wait before retry
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    // TypeScript requires this, but it's unreachable due to throw in loop
+    throw lastError || new Error(`${operationName} failed after retries`);
   }
 
   /**
@@ -80,20 +140,45 @@ export class AtlassianApiClient {
   /**
    * Fetches all users in the Atlassian organization with pagination support.
    * Uses v2 API with directory ID.
+   *
+   * NOTE: This method does NOT use withRetry wrapper to avoid amplifying rate limit errors.
+   * When a 429 rate limit is hit, it's better to fail fast and let the cache + CRON handle it
+   * rather than retrying and making even more API calls.
    */
   async getOrganizationUsers(): Promise<AtlassianUser[]> {
     const users: AtlassianUser[] = [];
     const directoryId = await this.getDirectoryId();
     let nextCursor: string | null = null;
 
+    const MAX_PAGES = 100; // Safety limit to prevent infinite loops
+    let pageCount = 0;
+    const seenUrls = new Set<string>(); // Track visited URLs to detect loops
+
     try {
       const baseApiUrl = `${this.baseUrl}/admin/v2/orgs/${this.orgId}/directories/${directoryId}/users`;
 
       do {
+        // Safety checks
+        if (pageCount >= MAX_PAGES) {
+          console.error(
+            `Reached maximum page limit (${MAX_PAGES}) while fetching Atlassian users. Fetched ${users.length} users so far.`,
+          );
+          break;
+        }
+
         // Build URL with cursor if we have one
         const url = nextCursor
           ? `${baseApiUrl}?cursor=${encodeURIComponent(nextCursor)}`
           : baseApiUrl;
+
+        // Detect infinite loop - same URL fetched twice
+        if (seenUrls.has(url)) {
+          console.error(`Infinite loop detected: attempting to fetch same URL twice: ${url}`);
+          break;
+        }
+        seenUrls.add(url);
+
+        console.log(`Fetching Atlassian users page ${pageCount + 1}...`);
 
         const response = await fetch(url, {
           method: 'GET',
@@ -106,10 +191,21 @@ export class AtlassianApiClient {
 
         if (!response.ok) {
           const errorText = await response.text();
+          // If we hit rate limit, log it and stop (don't retry)
+          if (response.status === 429) {
+            console.error(
+              `Rate limit hit while fetching Atlassian users (page ${pageCount + 1}). Returning ${users.length} users fetched so far.`,
+            );
+            break;
+          }
           throw new Error(`Failed to fetch Atlassian users: ${response.status} ${errorText}`);
         }
 
         const data: any = await response.json();
+
+        // Debug logging for pagination
+        console.log(`Page ${pageCount + 1}: Fetched ${data.data?.length || 0} users`);
+        console.log(`Next link: ${data.links?.next || 'null'}`);
 
         // Map v2 API response to our expected format
         const mappedUsers: AtlassianUser[] = data.data.map((user: any) => ({
@@ -123,12 +219,31 @@ export class AtlassianApiClient {
         }));
 
         users.push(...mappedUsers);
+        pageCount++;
 
-        // Handle pagination - v2 API provides next cursor token
-        nextCursor = data.links?.next || null;
+        // Handle pagination - check if next is a full URL or cursor token
+        const nextLink = data.links?.next;
+        if (!nextLink) {
+          nextCursor = null;
+        } else if (nextLink.startsWith('http://') || nextLink.startsWith('https://')) {
+          // Full URL returned - extract cursor parameter
+          try {
+            const nextUrl = new URL(nextLink);
+            nextCursor = nextUrl.searchParams.get('cursor');
+            console.log(`Extracted cursor from URL: ${nextCursor}`);
+          } catch (e) {
+            console.error(`Failed to parse next URL: ${nextLink}`, e);
+            nextCursor = null;
+          }
+        } else {
+          // Assume it's a cursor token
+          nextCursor = nextLink;
+        }
       } while (nextCursor);
 
-      console.log(`Fetched ${users.length} users from Atlassian API`);
+      console.log(
+        `Successfully fetched ${users.length} users from Atlassian API across ${pageCount} pages`,
+      );
       return users;
     } catch (error) {
       console.error('Error fetching Atlassian organization users', error);
@@ -141,30 +256,56 @@ export class AtlassianApiClient {
    * Returns undefined for last_active_dates if user has no activity data yet.
    */
   async getUserLastActive(accountId: string): Promise<UserLastActiveData> {
-    const url = `${this.baseUrl}/admin/v1/orgs/${this.orgId}/directory/users/${accountId}/last-active-dates`;
+    return this.withRetry(async () => {
+      const url = `${this.baseUrl}/admin/v1/orgs/${this.orgId}/directory/users/${accountId}/last-active-dates`;
 
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: this.authHeader,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      });
+      try {
+        const startTime = Date.now();
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Authorization: this.authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to fetch last active data for ${accountId}: ${response.status} ${errorText}`,
-        );
+        const latency = Date.now() - startTime;
+
+        // DIAGNOSTIC LOGGING - REMOVE AFTER INVESTIGATION
+        console.log(`[DIAGNOSTIC] getUserLastActive(${accountId.substring(0, 8)}...)`);
+        console.log(`  Status: ${response.status} ${response.statusText}`);
+        console.log(`  Latency: ${latency}ms`);
+
+        const rateLimitHeaders = {
+          remaining: response.headers.get('x-ratelimit-remaining'),
+          limit: response.headers.get('x-ratelimit-limit'),
+          reset: response.headers.get('x-ratelimit-reset'),
+        };
+        if (rateLimitHeaders.remaining || rateLimitHeaders.limit) {
+          console.log(`  Rate Limit: ${JSON.stringify(rateLimitHeaders)}`);
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.log(`  Error Response: ${errorText}`);
+          throw new Error(
+            `Failed to fetch last active data for ${accountId}: ${response.status} ${errorText}`,
+          );
+        }
+
+        const data: UserLastActiveData = await response.json();
+        console.log(`  product_access length: ${data.data?.product_access?.length ?? 'undefined'}`);
+        if (data.data?.product_access?.length === 0) {
+          console.log(`  ⚠️ EMPTY PRODUCT_ACCESS for user added: ${data.data.added_to_org || 'unknown'}`);
+        }
+
+        return data;
+      } catch (error) {
+        console.error(`[DIAGNOSTIC] Error fetching last active data for user ${accountId}`, error);
+        throw error;
       }
-
-      return await response.json();
-    } catch (error) {
-      console.error(`Error fetching last active data for user ${accountId}`, error);
-      throw error;
-    }
+    }, `getUserLastActive(${accountId})`);
   }
 
   /**
@@ -172,29 +313,31 @@ export class AtlassianApiClient {
    * User loses access but retains roles/groups for potential restoration.
    */
   async suspendUser(accountId: string): Promise<void> {
-    const url = `${this.baseUrl}/admin/v1/orgs/${this.orgId}/directory/users/${accountId}/suspend-access`;
+    return this.withRetry(async () => {
+      const url = `${this.baseUrl}/admin/v1/orgs/${this.orgId}/directory/users/${accountId}/suspend-access`;
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: this.authHeader,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          message: 'Suspended by automated license management system',
-        }),
-      });
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: this.authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            message: 'Suspended by automated license management system',
+          }),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to suspend user ${accountId}: ${response.status} ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to suspend user ${accountId}: ${response.status} ${errorText}`);
+        }
+      } catch (error) {
+        console.error(`Error suspending user ${accountId}`, error);
+        throw error;
       }
-    } catch (error) {
-      console.error(`Error suspending user ${accountId}`, error);
-      throw error;
-    }
+    }, `suspendUser(${accountId})`);
   }
 
   /**
@@ -203,25 +346,27 @@ export class AtlassianApiClient {
    * before permanent deletion completes.
    */
   async deleteUser(accountId: string): Promise<void> {
-    const url = `${this.baseUrl}/users/${accountId}/manage/lifecycle/delete`;
+    return this.withRetry(async () => {
+      const url = `${this.baseUrl}/users/${accountId}/manage/lifecycle/delete`;
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: this.authHeader,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      });
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: this.authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to delete user ${accountId}: ${response.status} ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to delete user ${accountId}: ${response.status} ${errorText}`);
+        }
+      } catch (error) {
+        console.error(`Error deleting user ${accountId}`, error);
+        throw error;
       }
-    } catch (error) {
-      console.error(`Error deleting user ${accountId}`, error);
-      throw error;
-    }
+    }, `deleteUser(${accountId})`);
   }
 }

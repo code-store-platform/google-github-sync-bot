@@ -1,7 +1,7 @@
 import { Octokit } from 'octokit';
-import { envVars } from '../lib/config.ts';
-import { normalizeGitHubUsername } from '../lib/utils.js';
-import { createGoogleAuth, getWorkspaceUsers } from './google-workspace.js';
+import { envVars } from '../lib/config';
+import { normalizeGitHubUsername } from '../lib/utils';
+import { createGoogleAuth, getWorkspaceUsers } from './google-workspace';
 
 export type SyncResult = {
   invited: SyncResultUser[];

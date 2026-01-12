@@ -1,6 +1,38 @@
-import { envVars } from '../lib/config.ts';
-import type { SyncResult } from './github-sync.js';
-import type { AtlassianSyncResult, AtlassianInactivityResult } from './atlassian-sync.js';
+import { envVars } from '../lib/config';
+import type { SyncResult } from './github-sync';
+import type { AtlassianSyncResult, AtlassianInactivityResult } from './atlassian-sync';
+
+/**
+ * Chunks an array of items into groups where each group's text length doesn't exceed maxLength.
+ * @param items - Array of items to chunk
+ * @param formatter - Function to format each item into text
+ * @param maxLength - Maximum length for each chunk's text (default 2800 to leave room for headers)
+ */
+function chunkItems<T>(items: T[], formatter: (item: T) => string, maxLength = 2800): string[][] {
+  const chunks: T[][] = [];
+  let currentChunk: T[] = [];
+  let currentLength = 0;
+
+  for (const item of items) {
+    const itemText = formatter(item);
+    const itemLength = itemText.length + 1; // +1 for newline
+
+    if (currentLength + itemLength > maxLength && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = [item];
+      currentLength = itemLength;
+    } else {
+      currentChunk.push(item);
+      currentLength += itemLength;
+    }
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.map((chunk) => chunk.map(formatter));
+}
 
 export function formatMessages(results: SyncResult) {
   const gitHubOrgName = envVars.GITHUB_ORG_NAME;
@@ -70,32 +102,42 @@ export function formatMessages(results: SyncResult) {
 }
 
 export function formatAtlassianSyncMessages(results: AtlassianSyncResult, dryRun = false) {
-  const suspendedMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text:
-        '*Suspended users (removed from Workspace):*\n' +
-        results.suspended
-          .map(({ email, accountId }) => `• ${email} (account: ${accountId.substring(0, 8)}...)`)
-          .join('\n'),
-    },
-  };
+  const blocks: any[] = [];
 
-  const errorsMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: `*Errors:*\n${results.errors.map((msg) => `• ${msg}`).join('\n')}`,
-    },
-  };
-
-  const blocks = [];
+  // Chunk suspended users if list is too long
   if (results.suspended.length > 0) {
-    blocks.push(suspendedMessageBlock);
+    const formatter = ({ email, accountId }: { email: string; accountId: string }) =>
+      `• ${email} (account: ${accountId.substring(0, 8)}...)`;
+
+    const chunks = chunkItems(results.suspended, formatter);
+
+    chunks.forEach((chunk, index) => {
+      const prefix = chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : '';
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Suspended users (removed from Workspace)${prefix}:*\n${chunk.join('\n')}`,
+        },
+      });
+    });
   }
+
+  // Chunk errors if list is too long
   if (results.errors.length > 0) {
-    blocks.push(errorsMessageBlock);
+    const formatter = (msg: string) => `• ${msg}`;
+    const chunks = chunkItems(results.errors, formatter);
+
+    chunks.forEach((chunk, index) => {
+      const prefix = chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : '';
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Errors${prefix}:*\n${chunk.join('\n')}`,
+        },
+      });
+    });
   }
 
   const headerText = dryRun ? 'Atlassian Sync Results [DRY RUN]' : 'Atlassian Sync Results';
@@ -124,53 +166,77 @@ export function formatAtlassianInactivityMessages(
   results: AtlassianInactivityResult,
   dryRun = false,
 ) {
-  const suspendedMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text:
-        '*Suspended users (inactive >90 days):*\n' +
-        (results.suspended || [])
-          .map(
-            ({ email, lastActiveDate, inactiveDays }) =>
-              `• ${email} - Last active: ${lastActiveDate ? new Date(lastActiveDate).toISOString().split('T')[0] : 'unknown'} (${inactiveDays} days ago)`,
-          )
-          .join('\n'),
-    },
-  };
+  const blocks: any[] = [];
 
-  const deletedMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text:
-        '*Deleted users (inactive >180 days):*\n' +
-        (results.deleted || [])
-          .map(
-            ({ email, lastActiveDate, inactiveDays }) =>
-              `• *${email}* - Last active: ${lastActiveDate ? new Date(lastActiveDate).toISOString().split('T')[0] : 'unknown'} (${inactiveDays} days ago) [14-day grace period]`,
-          )
-          .join('\n'),
-    },
-  };
-
-  const errorsMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: `*Errors:*\n${results.errors.map((msg) => `• ${msg}`).join('\n')}`,
-    },
-  };
-
-  const blocks = [];
+  // Chunk suspended users if list is too long
   if (results.suspended && results.suspended.length > 0) {
-    blocks.push(suspendedMessageBlock);
+    const formatter = ({
+      email,
+      lastActiveDate,
+      inactiveDays,
+    }: {
+      email: string;
+      lastActiveDate?: string;
+      inactiveDays?: number;
+    }) =>
+      `• ${email} - Last active: ${lastActiveDate ? new Date(lastActiveDate).toISOString().split('T')[0] : 'unknown'} (${inactiveDays} days ago)`;
+
+    const chunks = chunkItems(results.suspended, formatter);
+
+    chunks.forEach((chunk, index) => {
+      const prefix = chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : '';
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Suspended users (inactive >90 days)${prefix}:*\n${chunk.join('\n')}`,
+        },
+      });
+    });
   }
+
+  // Chunk deleted users if list is too long
   if (results.deleted && results.deleted.length > 0) {
-    blocks.push(deletedMessageBlock);
+    const formatter = ({
+      email,
+      lastActiveDate,
+      inactiveDays,
+    }: {
+      email: string;
+      lastActiveDate?: string;
+      inactiveDays?: number;
+    }) =>
+      `• *${email}* - Last active: ${lastActiveDate ? new Date(lastActiveDate).toISOString().split('T')[0] : 'unknown'} (${inactiveDays} days ago) [14-day grace period]`;
+
+    const chunks = chunkItems(results.deleted, formatter);
+
+    chunks.forEach((chunk, index) => {
+      const prefix = chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : '';
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Deleted users (inactive >180 days)${prefix}:*\n${chunk.join('\n')}`,
+        },
+      });
+    });
   }
+
+  // Chunk errors if list is too long
   if (results.errors.length > 0) {
-    blocks.push(errorsMessageBlock);
+    const formatter = (msg: string) => `• ${msg}`;
+    const chunks = chunkItems(results.errors, formatter);
+
+    chunks.forEach((chunk, index) => {
+      const prefix = chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : '';
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Errors${prefix}:*\n${chunk.join('\n')}`,
+        },
+      });
+    });
   }
 
   // Determine the header text based on what was done

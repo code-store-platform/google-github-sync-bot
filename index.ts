@@ -1,14 +1,18 @@
 import { App } from '@slack/bolt';
 import { CronJob } from 'cron';
 import * as dotenv from 'dotenv';
-import { envVars } from './lib/config.js';
-import { WorkspaceGitHubSync } from './services/github-sync.js';
-import { WorkspaceAtlassianSync } from './services/atlassian-sync.js';
+import { envVars } from './lib/config';
 import {
-  formatMessages,
-  formatAtlassianSyncMessages,
+  type AtlassianInactivityResult,
+  type AtlassianSyncResult,
+  WorkspaceAtlassianSync,
+} from './services/atlassian-sync';
+import { type SyncResult, WorkspaceGitHubSync } from './services/github-sync';
+import {
   formatAtlassianInactivityMessages,
-} from './services/slack-notifier.js';
+  formatAtlassianSyncMessages,
+  formatMessages,
+} from './services/slack-notifier';
 
 dotenv.config();
 
@@ -50,6 +54,8 @@ slackApp.command('/sync-atlassian', async ({ ack, respond }) => {
   await ack();
 
   try {
+    // Clear cache for manual sync to ensure fresh data
+    atlassianSync.clearCache();
     const results = await atlassianSync.syncSuspensions();
     const dryRun = envVars.ATLASSIAN_DRY_RUN;
 
@@ -70,13 +76,12 @@ slackApp.command('/check-atlassian-3m', async ({ ack, respond }) => {
   await ack();
 
   try {
+    // Clear cache for manual check to ensure fresh data
+    atlassianSync.clearCache();
     const results = await atlassianSync.check3MonthInactivity();
     const dryRun = envVars.ATLASSIAN_DRY_RUN;
 
-    if (
-      (!results.suspended || results.suspended.length === 0) &&
-      results.errors.length === 0
-    ) {
+    if ((!results.suspended || results.suspended.length === 0) && results.errors.length === 0) {
       await respond(
         dryRun
           ? '[DRY RUN] No users found inactive for more than 3 months'
@@ -97,6 +102,8 @@ slackApp.command('/check-atlassian-6m', async ({ ack, respond }) => {
   await ack();
 
   try {
+    // Clear cache for manual check to ensure fresh data
+    atlassianSync.clearCache();
     const results = await atlassianSync.check6MonthInactivity();
     const dryRun = envVars.ATLASSIAN_DRY_RUN;
 
@@ -117,164 +124,189 @@ slackApp.command('/check-atlassian-6m', async ({ ack, respond }) => {
 });
 
 async function syncPeriodically() {
-  const results = await sync.syncMembers();
-  const users = await slackApp.client.users.conversations({
-    exclude_archived: true,
-    types: 'im',
-  });
+  const syncStartTime = new Date().toISOString();
+  console.log(`[${syncStartTime}] Starting GitHub + Atlassian suspension periodic sync...`);
 
-  if (
-    users.ok &&
-    users.channels?.length &&
-    users.channels.length > 1 &&
-    (results.invited.length > 0 || results.removed.length > 0 || results.errors.length > 0)
-  ) {
-    const userString = users
-      .channels!.filter((channel) => channel.user !== 'USLACKBOT')
-      .map((channel) => channel.user)
-      .join(',');
-    const conversation = await slackApp.client.conversations.open({
-      users: userString,
-    });
-    const channelId = conversation.channel?.id || '';
-    const msg = formatMessages(results);
-    await slackApp.client.chat.postMessage({
-      token: envVars.SLACK_BOT_TOKEN,
-      channel: channelId,
-      text: 'GitHub Synchronization results',
-      blocks: msg.blocks,
-    });
+  // Run GitHub sync
+  let githubResults: SyncResult = { invited: [], removed: [], errors: [] };
+  try {
+    githubResults = await sync.syncMembers();
+  } catch (error) {
+    console.error('Error during GitHub periodic sync:', error);
   }
+
+  // Run Atlassian suspension sync (removes users who left Workspace)
+  const dryRun = envVars.ATLASSIAN_DRY_RUN;
+  let suspensionResults: AtlassianSyncResult = { suspended: [], errors: [] };
+  try {
+    suspensionResults = await atlassianSync.syncSuspensions();
+  } catch (error) {
+    console.error('Error in syncSuspensions:', error);
+    suspensionResults.errors.push(
+      `Failed to sync suspensions: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  // Send Slack notifications if there are changes
+  try {
+    const users = await slackApp.client.users.conversations({
+      exclude_archived: true,
+      types: 'im',
+    });
+
+    if (
+      users.ok &&
+      users.channels?.length &&
+      users.channels.length > 1
+    ) {
+      const userString = users
+        .channels?.filter((channel) => channel.user !== 'USLACKBOT')
+        .map((channel) => channel.user)
+        .join(',') ?? '';
+      const conversation = await slackApp.client.conversations.open({
+        users: userString,
+      });
+      const channelId = conversation.channel?.id || '';
+
+      // Send GitHub sync notification if there are changes
+      if (
+        githubResults.invited.length > 0 ||
+        githubResults.removed.length > 0 ||
+        githubResults.errors.length > 0
+      ) {
+        const msg = formatMessages(githubResults);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: 'GitHub Synchronization results',
+          blocks: msg.blocks,
+        });
+      }
+
+      // Send Atlassian suspension notification if there are changes
+      if (suspensionResults.suspended.length > 0 || suspensionResults.errors.length > 0) {
+        const msg = formatAtlassianSyncMessages(suspensionResults, dryRun);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: dryRun
+            ? '[DRY RUN] Atlassian Synchronization results'
+            : 'Atlassian Synchronization results',
+          blocks: msg.blocks,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error sending Slack notifications:', error);
+  }
+
+  const syncEndTime = new Date().toISOString();
+  console.log(`[${syncEndTime}] GitHub + Atlassian suspension periodic sync completed`);
 }
 
-async function syncAtlassianPeriodically() {
-  const results = await atlassianSync.syncSuspensions();
+async function suspendAtlassianUsersPeriodically() {
+  const syncStartTime = new Date().toISOString();
+  console.log(`[${syncStartTime}] Starting Atlassian inactivity periodic check...`);
+
   const dryRun = envVars.ATLASSIAN_DRY_RUN;
-  const users = await slackApp.client.users.conversations({
-    exclude_archived: true,
-    types: 'im',
-  });
 
-  if (
-    users.ok &&
-    users.channels?.length &&
-    users.channels.length > 1 &&
-    (results.suspended.length > 0 || results.errors.length > 0)
-  ) {
-    const userString = users
-      .channels!.filter((channel) => channel.user !== 'USLACKBOT')
-      .map((channel) => channel.user)
-      .join(',');
-    const conversation = await slackApp.client.conversations.open({
-      users: userString,
-    });
-    const channelId = conversation.channel?.id || '';
-    const msg = formatAtlassianSyncMessages(results, dryRun);
-    await slackApp.client.chat.postMessage({
-      token: envVars.SLACK_BOT_TOKEN,
-      channel: channelId,
-      text: dryRun
-        ? '[DRY RUN] Atlassian Synchronization results'
-        : 'Atlassian Synchronization results',
-      blocks: msg.blocks,
-    });
+  let inactivity3mResults: AtlassianInactivityResult = { suspended: [], errors: [] };
+  let inactivity6mResults: AtlassianInactivityResult = { deleted: [], errors: [] };
+
+  try {
+    inactivity3mResults = await atlassianSync.check3MonthInactivity();
+  } catch (error) {
+    console.error('Error in check3MonthInactivity:', error);
+    inactivity3mResults.errors.push(
+      `Failed to check 3-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-}
 
-async function check3MonthInactivityPeriodically() {
-  const results = await atlassianSync.check3MonthInactivity();
-  const dryRun = envVars.ATLASSIAN_DRY_RUN;
-  const users = await slackApp.client.users.conversations({
-    exclude_archived: true,
-    types: 'im',
-  });
-
-  if (
-    users.ok &&
-    users.channels?.length &&
-    users.channels.length > 1 &&
-    ((results.suspended && results.suspended.length > 0) || results.errors.length > 0)
-  ) {
-    const userString = users
-      .channels!.filter((channel) => channel.user !== 'USLACKBOT')
-      .map((channel) => channel.user)
-      .join(',');
-    const conversation = await slackApp.client.conversations.open({
-      users: userString,
-    });
-    const channelId = conversation.channel?.id || '';
-    const msg = formatAtlassianInactivityMessages(results, dryRun);
-    await slackApp.client.chat.postMessage({
-      token: envVars.SLACK_BOT_TOKEN,
-      channel: channelId,
-      text: dryRun
-        ? '[DRY RUN] Atlassian 3-month inactivity check results'
-        : 'Atlassian 3-month inactivity check results',
-      blocks: msg.blocks,
-    });
+  try {
+    inactivity6mResults = await atlassianSync.check6MonthInactivity();
+  } catch (error) {
+    console.error('Error in check6MonthInactivity:', error);
+    inactivity6mResults.errors.push(
+      `Failed to check 6-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-}
 
-async function check6MonthInactivityPeriodically() {
-  const results = await atlassianSync.check6MonthInactivity();
-  const dryRun = envVars.ATLASSIAN_DRY_RUN;
-  const users = await slackApp.client.users.conversations({
-    exclude_archived: true,
-    types: 'im',
-  });
+  // Send Slack notifications if there are changes
+  try {
+    const users = await slackApp.client.users.conversations({
+      exclude_archived: true,
+      types: 'im',
+    });
 
-  if (
-    users.ok &&
-    users.channels?.length &&
-    users.channels.length > 1 &&
-    ((results.deleted && results.deleted.length > 0) || results.errors.length > 0)
-  ) {
-    const userString = users
-      .channels!.filter((channel) => channel.user !== 'USLACKBOT')
-      .map((channel) => channel.user)
-      .join(',');
-    const conversation = await slackApp.client.conversations.open({
-      users: userString,
-    });
-    const channelId = conversation.channel?.id || '';
-    const msg = formatAtlassianInactivityMessages(results, dryRun);
-    await slackApp.client.chat.postMessage({
-      token: envVars.SLACK_BOT_TOKEN,
-      channel: channelId,
-      text: dryRun
-        ? '[DRY RUN] Atlassian 6-month inactivity check results'
-        : 'Atlassian 6-month inactivity check results',
-      blocks: msg.blocks,
-    });
+    if (
+      users.ok &&
+      users.channels?.length &&
+      users.channels.length > 1 &&
+      ((inactivity3mResults.suspended && inactivity3mResults.suspended.length > 0) ||
+        inactivity3mResults.errors.length > 0 ||
+        (inactivity6mResults.deleted && inactivity6mResults.deleted.length > 0) ||
+        inactivity6mResults.errors.length > 0)
+    ) {
+      const userString = users
+        .channels?.filter((channel) => channel.user !== 'USLACKBOT')
+        .map((channel) => channel.user)
+        .join(',') ?? '';
+      const conversation = await slackApp.client.conversations.open({
+        users: userString,
+      });
+      const channelId = conversation.channel?.id || '';
+
+      // Send 3-month inactivity notification if there are changes
+      if (
+        (inactivity3mResults.suspended && inactivity3mResults.suspended.length > 0) ||
+        inactivity3mResults.errors.length > 0
+      ) {
+        const msg = formatAtlassianInactivityMessages(inactivity3mResults, dryRun);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: dryRun
+            ? '[DRY RUN] Atlassian 3-month inactivity check results'
+            : 'Atlassian 3-month inactivity check results',
+          blocks: msg.blocks,
+        });
+      }
+
+      // Send 6-month deletion notification if there are changes
+      if (
+        (inactivity6mResults.deleted && inactivity6mResults.deleted.length > 0) ||
+        inactivity6mResults.errors.length > 0
+      ) {
+        const msg = formatAtlassianInactivityMessages(inactivity6mResults, dryRun);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: dryRun
+            ? '[DRY RUN] Atlassian 6-month inactivity check results'
+            : 'Atlassian 6-month inactivity check results',
+          blocks: msg.blocks,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error sending Slack notifications:', error);
   }
+
+  const syncEndTime = new Date().toISOString();
+  console.log(`[${syncEndTime}] Atlassian inactivity periodic check completed`);
 }
 
 await slackApp.start(envVars.PORT);
 console.log('⚡️ Slack bot is running!');
 
-const githubCronJob = new CronJob(envVars.CRON_SCHEDULE, syncPeriodically, null, true);
+// Start CRON jobs - fourth parameter 'false' means don't run immediately, only on schedule
+const githubCronJob = new CronJob(envVars.CRON_SCHEDULE, syncPeriodically, null, false);
 githubCronJob.start();
 
-const atlassianSyncCronJob = new CronJob(
-  envVars.CRON_SCHEDULE,
-  syncAtlassianPeriodically,
+const atlassianCronJob = new CronJob(
+  envVars.ATLASSIAN_INACTIVITY_CRON_SCHEDULE,
+  suspendAtlassianUsersPeriodically,
   null,
-  true,
+  false,
 );
-atlassianSyncCronJob.start();
-
-const atlassian3mCronJob = new CronJob(
-  envVars.ATLASSIAN_INACTIVITY_3M_SCHEDULE,
-  check3MonthInactivityPeriodically,
-  null,
-  true,
-);
-atlassian3mCronJob.start();
-
-const atlassian6mCronJob = new CronJob(
-  envVars.ATLASSIAN_INACTIVITY_6M_SCHEDULE,
-  check6MonthInactivityPeriodically,
-  null,
-  true,
-);
-atlassian6mCronJob.start();
+atlassianCronJob.start();
