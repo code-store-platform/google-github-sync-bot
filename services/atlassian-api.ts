@@ -83,11 +83,6 @@ export class AtlassianApiClient {
         // Calculate exponential backoff delay: 1s, 2s, 4s
         const delayMs = BASE_DELAY_MS * 2 ** attempt;
 
-        console.log(
-          `${operationName} failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}). ` +
-            `Retrying in ${delayMs}ms...`,
-        );
-
         // Wait before retry
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -178,8 +173,6 @@ export class AtlassianApiClient {
         }
         seenUrls.add(url);
 
-        console.log(`Fetching Atlassian users page ${pageCount + 1}...`);
-
         const response = await fetch(url, {
           method: 'GET',
           headers: {
@@ -201,14 +194,23 @@ export class AtlassianApiClient {
           throw new Error(`Failed to fetch Atlassian users: ${response.status} ${errorText}`);
         }
 
-        const data: any = await response.json();
+        type UserResponse = {
+          accountId: string;
+          email: string;
+          membershipStatus: string;
+          name?: string;
+          addedToOrg?: string;
+        };
 
-        // Debug logging for pagination
-        console.log(`Page ${pageCount + 1}: Fetched ${data.data?.length || 0} users`);
-        console.log(`Next link: ${data.links?.next || 'null'}`);
+        type ApiResponse = {
+          data: UserResponse[];
+          links?: { next?: string };
+        };
+
+        const data: ApiResponse = await response.json();
 
         // Map v2 API response to our expected format
-        const mappedUsers: AtlassianUser[] = data.data.map((user: any) => ({
+        const mappedUsers: AtlassianUser[] = data.data.map((user: UserResponse) => ({
           account_id: user.accountId,
           email: user.email,
           // In v2 API: accountStatus is "active" or "inactive", membershipStatus is "active" or "suspended"
@@ -230,7 +232,6 @@ export class AtlassianApiClient {
           try {
             const nextUrl = new URL(nextLink);
             nextCursor = nextUrl.searchParams.get('cursor');
-            console.log(`Extracted cursor from URL: ${nextCursor}`);
           } catch (e) {
             console.error(`Failed to parse next URL: ${nextLink}`, e);
             nextCursor = null;
@@ -241,9 +242,6 @@ export class AtlassianApiClient {
         }
       } while (nextCursor);
 
-      console.log(
-        `Successfully fetched ${users.length} users from Atlassian API across ${pageCount} pages`,
-      );
       return users;
     } catch (error) {
       console.error('Error fetching Atlassian organization users', error);
@@ -260,7 +258,6 @@ export class AtlassianApiClient {
       const url = `${this.baseUrl}/admin/v1/orgs/${this.orgId}/directory/users/${accountId}/last-active-dates`;
 
       try {
-        const startTime = Date.now();
         const response = await fetch(url, {
           method: 'GET',
           headers: {
@@ -270,39 +267,17 @@ export class AtlassianApiClient {
           },
         });
 
-        const latency = Date.now() - startTime;
-
-        // DIAGNOSTIC LOGGING - REMOVE AFTER INVESTIGATION
-        console.log(`[DIAGNOSTIC] getUserLastActive(${accountId.substring(0, 8)}...)`);
-        console.log(`  Status: ${response.status} ${response.statusText}`);
-        console.log(`  Latency: ${latency}ms`);
-
-        const rateLimitHeaders = {
-          remaining: response.headers.get('x-ratelimit-remaining'),
-          limit: response.headers.get('x-ratelimit-limit'),
-          reset: response.headers.get('x-ratelimit-reset'),
-        };
-        if (rateLimitHeaders.remaining || rateLimitHeaders.limit) {
-          console.log(`  Rate Limit: ${JSON.stringify(rateLimitHeaders)}`);
-        }
-
         if (!response.ok) {
           const errorText = await response.text();
-          console.log(`  Error Response: ${errorText}`);
           throw new Error(
             `Failed to fetch last active data for ${accountId}: ${response.status} ${errorText}`,
           );
         }
 
         const data: UserLastActiveData = await response.json();
-        console.log(`  product_access length: ${data.data?.product_access?.length ?? 'undefined'}`);
-        if (data.data?.product_access?.length === 0) {
-          console.log(`  ⚠️ EMPTY PRODUCT_ACCESS for user added: ${data.data.added_to_org || 'unknown'}`);
-        }
-
         return data;
       } catch (error) {
-        console.error(`[DIAGNOSTIC] Error fetching last active data for user ${accountId}`, error);
+        console.error(`Error fetching last active data for user ${accountId}`, error);
         throw error;
       }
     }, `getUserLastActive(${accountId})`);

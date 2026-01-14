@@ -101,8 +101,16 @@ export function formatMessages(results: SyncResult) {
   };
 }
 
+type SlackBlock = {
+  type: string;
+  text?: {
+    type: string;
+    text: string;
+  };
+};
+
 export function formatAtlassianSyncMessages(results: AtlassianSyncResult, dryRun = false) {
-  const blocks: any[] = [];
+  const blocks: SlackBlock[] = [];
 
   // Chunk suspended users if list is too long
   if (results.suspended.length > 0) {
@@ -166,7 +174,7 @@ export function formatAtlassianInactivityMessages(
   results: AtlassianInactivityResult,
   dryRun = false,
 ) {
-  const blocks: any[] = [];
+  const blocks: SlackBlock[] = [];
 
   // Chunk suspended users if list is too long
   if (results.suspended && results.suspended.length > 0) {

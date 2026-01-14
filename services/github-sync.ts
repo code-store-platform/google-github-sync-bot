@@ -44,9 +44,10 @@ export class WorkspaceGitHubSync {
             (user) =>
               !!user.customSchemas && user.customSchemas['3rd-party_tools']?.GitHub_Username,
           )
-          .map((user) =>
-            normalizeGitHubUsername(user.customSchemas!['3rd-party_tools']!.GitHub_Username!),
-          ),
+          .map((user) => {
+            const githubUsername = user.customSchemas?.['3rd-party_tools']?.GitHub_Username;
+            return normalizeGitHubUsername(githubUsername || '');
+          }),
       );
 
       // add users with GitHub usernames to the org
@@ -128,7 +129,7 @@ export class WorkspaceGitHubSync {
       return new Set(
         invites
           .filter((invite) => invite.login)
-          .map((invite) => normalizeGitHubUsername(invite.login!)),
+          .map((invite) => normalizeGitHubUsername(invite.login || '')),
       );
     } catch (error) {
       console.error('Error fetching GitHub invites', error);

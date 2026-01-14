@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Google-GitHub Sync is a tool that synchronizes Google Workspace users with GitHub organization members. It automatically invites users with GitHub usernames to a GitHub organization and removes users who are no longer in Google Workspace. The tool provides both a Slack bot interface for manual triggers and scheduled synchronization via cron jobs.
+Google-GitHub Sync is a tool that synchronizes Google Workspace users with GitHub organization members and Atlassian. 
+It automatically invites users with GitHub usernames to a GitHub organization and removes users who are no longer in Google Workspace.
+It automatically removes users who are no longer in Google Workspace from Atlassian.
+It automatically suspends users who are no longer active in Atlassian.
+The tool provides both a Slack bot interface for manual triggers and scheduled synchronization via cron jobs.
 
 ## Development Commands
 
@@ -20,7 +24,12 @@ bun run index.ts
 
 **Format code:**
 ```bash
-bunx prettier --write .
+bun run format
+```
+
+***Lint code:**
+```bash
+bun run lint
 ```
 
 **Docker commands:**
@@ -125,3 +134,4 @@ Required environment variables in `.env`:
 - Uses TypeScript with strict mode enabled
 - No build step required (noEmit: true in tsconfig)
 - Runs as long-lived process with Slack Socket Mode and cron job
+- Prefer imports without extensions, DO NOT use .js extensions in import paths

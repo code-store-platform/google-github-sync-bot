@@ -27,7 +27,6 @@ const sync = new WorkspaceGitHubSync();
 const atlassianSync = new WorkspaceAtlassianSync();
 
 slackApp.command('/sync-github', async ({ ack, respond }) => {
-  console.debug('Received /sync-github command');
   await ack();
 
   try {
@@ -50,7 +49,6 @@ slackApp.command('/sync-github', async ({ ack, respond }) => {
 });
 
 slackApp.command('/sync-atlassian', async ({ ack, respond }) => {
-  console.debug('Received /sync-atlassian command');
   await ack();
 
   try {
@@ -72,7 +70,6 @@ slackApp.command('/sync-atlassian', async ({ ack, respond }) => {
 });
 
 slackApp.command('/check-atlassian-3m', async ({ ack, respond }) => {
-  console.debug('Received /check-atlassian-3m command');
   await ack();
 
   try {
@@ -98,7 +95,6 @@ slackApp.command('/check-atlassian-3m', async ({ ack, respond }) => {
 });
 
 slackApp.command('/check-atlassian-6m', async ({ ack, respond }) => {
-  console.debug('Received /check-atlassian-6m command');
   await ack();
 
   try {
@@ -143,7 +139,7 @@ async function syncPeriodically() {
   } catch (error) {
     console.error('Error in syncSuspensions:', error);
     suspensionResults.errors.push(
-      `Failed to sync suspensions: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to sync suspensions: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
@@ -154,15 +150,12 @@ async function syncPeriodically() {
       types: 'im',
     });
 
-    if (
-      users.ok &&
-      users.channels?.length &&
-      users.channels.length > 1
-    ) {
-      const userString = users
-        .channels?.filter((channel) => channel.user !== 'USLACKBOT')
-        .map((channel) => channel.user)
-        .join(',') ?? '';
+    if (users.ok && users.channels?.length && users.channels.length > 1) {
+      const userString =
+        users.channels
+          ?.filter((channel) => channel.user !== 'USLACKBOT')
+          .map((channel) => channel.user)
+          .join(',') ?? '';
       const conversation = await slackApp.client.conversations.open({
         users: userString,
       });
@@ -211,7 +204,7 @@ async function suspendAtlassianUsersPeriodically() {
   const dryRun = envVars.ATLASSIAN_DRY_RUN;
 
   let inactivity3mResults: AtlassianInactivityResult = { suspended: [], errors: [] };
-  let inactivity6mResults: AtlassianInactivityResult = { deleted: [], errors: [] };
+  const inactivity6mResults: AtlassianInactivityResult = { deleted: [], errors: [] };
 
   try {
     inactivity3mResults = await atlassianSync.check3MonthInactivity();
@@ -222,14 +215,14 @@ async function suspendAtlassianUsersPeriodically() {
     );
   }
 
-  try {
-    inactivity6mResults = await atlassianSync.check6MonthInactivity();
-  } catch (error) {
-    console.error('Error in check6MonthInactivity:', error);
-    inactivity6mResults.errors.push(
-      `Failed to check 6-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  // try {
+  //   inactivity6mResults = await atlassianSync.check6MonthInactivity();
+  // } catch (error) {
+  //   console.error('Error in check6MonthInactivity:', error);
+  //   inactivity6mResults.errors.push(
+  //     `Failed to check 6-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
+  //   );
+  // }
 
   // Send Slack notifications if there are changes
   try {
@@ -247,10 +240,11 @@ async function suspendAtlassianUsersPeriodically() {
         (inactivity6mResults.deleted && inactivity6mResults.deleted.length > 0) ||
         inactivity6mResults.errors.length > 0)
     ) {
-      const userString = users
-        .channels?.filter((channel) => channel.user !== 'USLACKBOT')
-        .map((channel) => channel.user)
-        .join(',') ?? '';
+      const userString =
+        users.channels
+          ?.filter((channel) => channel.user !== 'USLACKBOT')
+          .map((channel) => channel.user)
+          .join(',') ?? '';
       const conversation = await slackApp.client.conversations.open({
         users: userString,
       });
