@@ -121,7 +121,7 @@ slackApp.command('/check-atlassian-6m', async ({ ack, respond }) => {
 
 async function syncPeriodically() {
   const syncStartTime = new Date().toISOString();
-  console.log(`[${syncStartTime}] Starting GitHub + Atlassian suspension periodic sync...`);
+  console.log(`[${syncStartTime}] [Start] GitHub + Atlassian suspension periodic sync...`);
 
   // Run GitHub sync
   let githubResults: SyncResult = { invited: [], removed: [], errors: [] };
@@ -194,17 +194,17 @@ async function syncPeriodically() {
   }
 
   const syncEndTime = new Date().toISOString();
-  console.log(`[${syncEndTime}] GitHub + Atlassian suspension periodic sync completed`);
+  console.log(`[${syncEndTime}] [Completed] GitHub + Atlassian suspension periodic sync.`);
 }
 
 async function suspendAtlassianUsersPeriodically() {
   const syncStartTime = new Date().toISOString();
-  console.log(`[${syncStartTime}] Starting Atlassian inactivity periodic check...`);
+  console.log(`[${syncStartTime}] [Start] Atlassian inactivity periodic check...`);
 
   const dryRun = envVars.ATLASSIAN_DRY_RUN;
 
   let inactivity3mResults: AtlassianInactivityResult = { suspended: [], errors: [] };
-  const inactivity6mResults: AtlassianInactivityResult = { deleted: [], errors: [] };
+  let inactivity6mResults: AtlassianInactivityResult = { deleted: [], errors: [] };
 
   try {
     inactivity3mResults = await atlassianSync.check3MonthInactivity();
@@ -215,14 +215,14 @@ async function suspendAtlassianUsersPeriodically() {
     );
   }
 
-  // try {
-  //   inactivity6mResults = await atlassianSync.check6MonthInactivity();
-  // } catch (error) {
-  //   console.error('Error in check6MonthInactivity:', error);
-  //   inactivity6mResults.errors.push(
-  //     `Failed to check 6-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
-  //   );
-  // }
+  try {
+    inactivity6mResults = await atlassianSync.check6MonthInactivity();
+  } catch (error) {
+    console.error('Error in check6MonthInactivity:', error);
+    inactivity6mResults.errors.push(
+      `Failed to check 6-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   // Send Slack notifications if there are changes
   try {
@@ -287,7 +287,7 @@ async function suspendAtlassianUsersPeriodically() {
   }
 
   const syncEndTime = new Date().toISOString();
-  console.log(`[${syncEndTime}] Atlassian inactivity periodic check completed`);
+  console.log(`[${syncEndTime}] [Completed] Atlassian inactivity periodic check.`);
 }
 
 await slackApp.start(envVars.PORT);
