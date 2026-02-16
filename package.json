@@ -2,18 +2,26 @@
   "name": "google-github-sync",
   "module": "index.ts",
   "type": "module",
+  "scripts": {
+    "prepare": "effect-language-service patch",
+    "format": "biome format --write",
+    "lint": "biome lint"
+  },
   "devDependencies": {
-    "@types/bun": "latest",
-    "prettier": "3.5.0"
+    "@biomejs/biome": "2.3.11",
+    "@effect/language-service": "^0.64.1",
+    "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@slack/bolt": "^4.2.0",
-    "cron": "^4.1.0",
-    "dotenv": "^16.4.7",
-    "googleapis": "^144.0.0",
-    "octokit": "^4.1.1"
+    "@slack/bolt": "^4.6.0",
+    "cron": "^4.4.0",
+    "dotenv": "^17.2.3",
+    "effect": "^3.19.14",
+    "googleapis": "^170.0.0",
+    "octokit": "^4.1.4",
+    "zod": "^4.3.5"
   }
 }

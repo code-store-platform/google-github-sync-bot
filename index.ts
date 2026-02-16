@@ -1,211 +1,32 @@
-import { google } from 'googleapis';
-import * as dotenv from 'dotenv';
 import { App } from '@slack/bolt';
-import { Octokit } from 'octokit';
 import { CronJob } from 'cron';
+import * as dotenv from 'dotenv';
+import { envVars } from './lib/config';
+import {
+  type AtlassianInactivityResult,
+  type AtlassianSyncResult,
+  WorkspaceAtlassianSync,
+} from './services/atlassian-sync';
+import { type SyncResult, WorkspaceGitHubSync } from './services/github-sync';
+import {
+  formatAtlassianInactivityMessages,
+  formatAtlassianSyncMessages,
+  formatMessages,
+} from './services/slack-notifier';
 
 dotenv.config();
 
-type GoogleUser = {
-  primaryEmail?: string | null;
-  customSchemas?: {
-    '3rd-party_tools'?: {
-      GitHub_Username?: string;
-    } | null;
-  } | null;
-};
-
-type SyncResult = {
-  invited: SyncResultUser[];
-  removed: string[];
-  errors: string[];
-};
-type SyncResultUser = {
-  username: string;
-  email: string;
-};
-
-class WorkspaceGitHubSync {
-  private readonly auth;
-  private octokit: Octokit;
-  private readonly orgName: string;
-  private removeStopList: string[] =
-    process.env.REMOVE_STOP_LIST?.split(',') || [];
-
-  constructor() {
-    const keysEnvVar = process.env['GOOGLE_APPLICATION_CREDENTIALS'];
-    if (!keysEnvVar) {
-      throw new Error('The $CREDS environment variable was not found!');
-    }
-    const keys = JSON.parse(keysEnvVar);
-    this.auth = new google.auth.GoogleAuth({
-      credentials: keys,
-      scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
-      clientOptions: {
-        subject: process.env.GOOGLE_ADMIN_EMAIL, // impersonate the admin user
-      },
-    });
-
-    this.octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
-    });
-
-    this.orgName = process.env.GITHUB_ORG_NAME!;
-  }
-
-  async syncMembers(): Promise<SyncResult> {
-    const syncResult: SyncResult = { invited: [], removed: [], errors: [] };
-    try {
-      const workspaceUsers = await this.getWorkspaceUsers();
-      const currentMembers = await this.getGithubMemberUsernames();
-      const pendingInvites = await this.getGithubInvitedUsers();
-
-      // get all users with GitHub usernames
-      const workspaceGitHubUsernames = new Set(
-        workspaceUsers
-          .filter(
-            (user) =>
-              !!user.customSchemas &&
-              user.customSchemas['3rd-party_tools']?.GitHub_Username,
-          )
-          .map((user) =>
-            user.customSchemas![
-              '3rd-party_tools'
-            ]!.GitHub_Username!.toLowerCase(),
-          ),
-      );
-
-      // add users with GitHub usernames to the org
-      for (const username of workspaceGitHubUsernames) {
-        if (!currentMembers.has(username) && !pendingInvites.has(username)) {
-          try {
-            const user = await this.octokit.rest.users.getByUsername({
-              username,
-            });
-            const userEmail = workspaceUsers.find(
-              (u) =>
-                u.customSchemas?.[
-                  '3rd-party_tools'
-                ]?.GitHub_Username?.toLowerCase() === username,
-            )?.primaryEmail;
-
-            if (!user.data.id || !userEmail) {
-              syncResult.errors.push(
-                `User ${username} with email ${userEmail} not found on GitHub`,
-              );
-              continue;
-            }
-
-            await this.octokit.rest.orgs.createInvitation({
-              org: this.orgName,
-              invitee_id: user.data.id,
-            });
-
-            syncResult.invited.push({ username, email: userEmail });
-          } catch (e) {
-            syncResult.errors.push(`Error inviting ${username}`);
-            console.error('Error inviting user', e);
-          }
-        }
-      }
-
-      // remove users without GitHub usernames from the org
-      for (const member of currentMembers) {
-        if (
-          !workspaceGitHubUsernames.has(member) &&
-          !this.removeStopList.includes(member)
-        ) {
-          try {
-            await this.octokit.rest.orgs.removeMember({
-              org: this.orgName,
-              username: member,
-            });
-            syncResult.removed.push(member);
-          } catch (e) {
-            syncResult.errors.push(`Error removing ${member}`);
-            console.error('Error removing user', e);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error during synchronization', e);
-      throw e;
-    }
-
-    return syncResult;
-  }
-
-  async getWorkspaceUsers(): Promise<GoogleUser[]> {
-    const directory = google.admin({
-      version: 'directory_v1',
-      auth: this.auth,
-    });
-
-    try {
-      const response = await directory.users.list({
-        customer: 'my_customer',
-        projection: 'full',
-        viewType: 'admin_view',
-        maxResults: 300,
-      });
-
-      return response.data.users || [];
-    } catch (e) {
-      console.error('Error fetching Google Workspace users', e);
-      throw e;
-    }
-  }
-
-  async getGithubMemberUsernames() {
-    try {
-      const members = await this.octokit.paginate(
-        this.octokit.rest.orgs.listMembers,
-        {
-          org: this.orgName,
-          per_page: 100,
-        },
-      );
-
-      return new Set(members.map((member) => member.login.toLowerCase()));
-    } catch (error) {
-      console.error('Error fetching GitHub members', error);
-      throw error;
-    }
-  }
-
-  async getGithubInvitedUsers() {
-    try {
-      const invites = await this.octokit.paginate(
-        this.octokit.rest.orgs.listPendingInvitations,
-        {
-          org: this.orgName,
-          per_page: 100,
-        },
-      );
-
-      return new Set(
-        invites
-          .filter((invite) => invite.login)
-          .map((invite) => invite.login!.toLowerCase()),
-      );
-    } catch (error) {
-      console.error('Error fetching GitHub invites', error);
-      throw error;
-    }
-  }
-}
-
 const slackApp = new App({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  token: process.env.SLACK_BOT_TOKEN,
-  appToken: process.env.SLACK_APP_TOKEN,
+  signingSecret: envVars.SLACK_SIGNING_SECRET,
+  token: envVars.SLACK_BOT_TOKEN,
+  appToken: envVars.SLACK_APP_TOKEN,
   socketMode: true,
 });
 
 const sync = new WorkspaceGitHubSync();
+const atlassianSync = new WorkspaceAtlassianSync();
 
 slackApp.command('/sync-github', async ({ ack, respond }) => {
-  console.debug('Received /sync-github command');
   await ack();
 
   try {
@@ -227,113 +48,259 @@ slackApp.command('/sync-github', async ({ ack, respond }) => {
   }
 });
 
-function formatMessages(results: SyncResult) {
-  const gitHubOrgName = process.env.GITHUB_ORG_NAME;
-  const invitedMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text:
-        '*Invited users:*\n' +
-        results.invited
-          .map(
-            ({ username, email }) =>
-              `* <https://github.com/orgs/${gitHubOrgName}/people/${username}|${username}> – ${email}`,
-          )
-          .join('\n'),
-    },
-  };
-  const removedMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text:
-        '*Removed users:*\n' +
-        results.removed
-          .map(
-            (username) =>
-              `* <https://github.com/orgs/${gitHubOrgName}/people/${username}|${username}>`,
-          )
-          .join('\n'),
-    },
-  };
-  const errorsMessageBlock = {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: '*Errors:*\n' + results.errors.map((msg) => `* ${msg}`).join('\n'),
-    },
-  };
+slackApp.command('/sync-atlassian', async ({ ack, respond }) => {
+  await ack();
 
-  const blocks = [];
-  if (results.invited.length > 0) {
-    blocks.push(invitedMessageBlock);
-  }
-  if (results.removed.length > 0) {
-    blocks.push(removedMessageBlock);
-  }
-  if (results.errors.length > 0) {
-    blocks.push(errorsMessageBlock);
-  }
+  try {
+    // Clear cache for manual sync to ensure fresh data
+    atlassianSync.clearCache();
+    const results = await atlassianSync.syncSuspensions();
+    const dryRun = envVars.ATLASSIAN_DRY_RUN;
 
-  return {
-    text: 'Sync completed! Here are the results:',
-    blocks: [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: 'Sync results',
-        },
-      },
-      ...blocks,
-      {
-        type: 'divider',
-      },
-    ],
-  };
-}
+    if (results.suspended.length === 0 && results.errors.length === 0) {
+      await respond(dryRun ? '[DRY RUN] No changes detected' : 'No changes detected');
+    } else {
+      const msg = formatAtlassianSyncMessages(results, dryRun);
+      await respond(msg);
+    }
+  } catch (error) {
+    await respond('Error during Atlassian sync');
+    console.error('Error during Atlassian sync', error);
+  }
+});
+
+slackApp.command('/check-atlassian-3m', async ({ ack, respond }) => {
+  await ack();
+
+  try {
+    // Clear cache for manual check to ensure fresh data
+    atlassianSync.clearCache();
+    const results = await atlassianSync.check3MonthInactivity();
+    const dryRun = envVars.ATLASSIAN_DRY_RUN;
+
+    if ((!results.suspended || results.suspended.length === 0) && results.errors.length === 0) {
+      await respond(
+        dryRun
+          ? '[DRY RUN] No users found inactive for more than 3 months'
+          : 'No users found inactive for more than 3 months',
+      );
+    } else {
+      const msg = formatAtlassianInactivityMessages(results, dryRun);
+      await respond(msg);
+    }
+  } catch (error) {
+    await respond('Error during 3-month inactivity check');
+    console.error('Error during 3-month inactivity check', error);
+  }
+});
+
+slackApp.command('/check-atlassian-6m', async ({ ack, respond }) => {
+  await ack();
+
+  try {
+    // Clear cache for manual check to ensure fresh data
+    atlassianSync.clearCache();
+    const results = await atlassianSync.check6MonthInactivity();
+    const dryRun = envVars.ATLASSIAN_DRY_RUN;
+
+    if ((!results.deleted || results.deleted.length === 0) && results.errors.length === 0) {
+      await respond(
+        dryRun
+          ? '[DRY RUN] No users found inactive for more than 6 months'
+          : 'No users found inactive for more than 6 months',
+      );
+    } else {
+      const msg = formatAtlassianInactivityMessages(results, dryRun);
+      await respond(msg);
+    }
+  } catch (error) {
+    await respond('Error during 6-month inactivity check');
+    console.error('Error during 6-month inactivity check', error);
+  }
+});
 
 async function syncPeriodically() {
-  const results = await sync.syncMembers();
-  const users = await slackApp.client.users.conversations({
-    exclude_archived: true,
-    types: 'im',
-  });
+  const syncStartTime = new Date().toISOString();
+  console.log(`[${syncStartTime}] [Start] GitHub + Atlassian suspension periodic sync...`);
 
-  if (
-    users.ok &&
-    users.channels?.length &&
-    users.channels.length > 1 &&
-    (results.invited.length > 0 ||
-      results.removed.length > 0 ||
-      results.errors.length > 0)
-  ) {
-    const userString = users
-      .channels!.filter((channel) => channel.user !== 'USLACKBOT')
-      .map((channel) => channel.user)
-      .join(',');
-    const conversation = await slackApp.client.conversations.open({
-      users: userString,
-    });
-    const channelId = conversation.channel?.id || '';
-    const msg = formatMessages(results);
-    await slackApp.client.chat.postMessage({
-      token: process.env.SLACK_BOT_TOKEN,
-      channel: channelId,
-      text: 'GitHub Synchronization results',
-      blocks: msg.blocks,
-    });
+  // Run GitHub sync
+  let githubResults: SyncResult = { invited: [], removed: [], errors: [] };
+  try {
+    githubResults = await sync.syncMembers();
+  } catch (error) {
+    console.error('Error during GitHub periodic sync:', error);
   }
+
+  // Run Atlassian suspension sync (removes users who left Workspace)
+  const dryRun = envVars.ATLASSIAN_DRY_RUN;
+  let suspensionResults: AtlassianSyncResult = { suspended: [], errors: [] };
+  try {
+    suspensionResults = await atlassianSync.syncSuspensions();
+  } catch (error) {
+    console.error('Error in syncSuspensions:', error);
+    suspensionResults.errors.push(
+      `Failed to sync suspensions: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // Send Slack notifications if there are changes
+  try {
+    const users = await slackApp.client.users.conversations({
+      exclude_archived: true,
+      types: 'im',
+    });
+
+    if (users.ok && users.channels?.length && users.channels.length > 1) {
+      const userString =
+        users.channels
+          ?.filter((channel) => channel.user !== 'USLACKBOT')
+          .map((channel) => channel.user)
+          .join(',') ?? '';
+      const conversation = await slackApp.client.conversations.open({
+        users: userString,
+      });
+      const channelId = conversation.channel?.id || '';
+
+      // Send GitHub sync notification if there are changes
+      if (
+        githubResults.invited.length > 0 ||
+        githubResults.removed.length > 0 ||
+        githubResults.errors.length > 0
+      ) {
+        const msg = formatMessages(githubResults);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: 'GitHub Synchronization results',
+          blocks: msg.blocks,
+        });
+      }
+
+      // Send Atlassian suspension notification if there are changes
+      if (suspensionResults.suspended.length > 0 || suspensionResults.errors.length > 0) {
+        const msg = formatAtlassianSyncMessages(suspensionResults, dryRun);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: dryRun
+            ? '[DRY RUN] Atlassian Synchronization results'
+            : 'Atlassian Synchronization results',
+          blocks: msg.blocks,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error sending Slack notifications:', error);
+  }
+
+  const syncEndTime = new Date().toISOString();
+  console.log(`[${syncEndTime}] [Completed] GitHub + Atlassian suspension periodic sync.`);
 }
 
-await slackApp.start(process.env.PORT || 3000);
+async function suspendAtlassianUsersPeriodically() {
+  const syncStartTime = new Date().toISOString();
+  console.log(`[${syncStartTime}] [Start] Atlassian inactivity periodic check...`);
+
+  const dryRun = envVars.ATLASSIAN_DRY_RUN;
+
+  let inactivity3mResults: AtlassianInactivityResult = { suspended: [], errors: [] };
+  let inactivity6mResults: AtlassianInactivityResult = { deleted: [], errors: [] };
+
+  try {
+    inactivity3mResults = await atlassianSync.check3MonthInactivity();
+  } catch (error) {
+    console.error('Error in check3MonthInactivity:', error);
+    inactivity3mResults.errors.push(
+      `Failed to check 3-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    inactivity6mResults = await atlassianSync.check6MonthInactivity();
+  } catch (error) {
+    console.error('Error in check6MonthInactivity:', error);
+    inactivity6mResults.errors.push(
+      `Failed to check 6-month inactivity: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // Send Slack notifications if there are changes
+  try {
+    const users = await slackApp.client.users.conversations({
+      exclude_archived: true,
+      types: 'im',
+    });
+
+    if (
+      users.ok &&
+      users.channels?.length &&
+      users.channels.length > 1 &&
+      ((inactivity3mResults.suspended && inactivity3mResults.suspended.length > 0) ||
+        inactivity3mResults.errors.length > 0 ||
+        (inactivity6mResults.deleted && inactivity6mResults.deleted.length > 0) ||
+        inactivity6mResults.errors.length > 0)
+    ) {
+      const userString =
+        users.channels
+          ?.filter((channel) => channel.user !== 'USLACKBOT')
+          .map((channel) => channel.user)
+          .join(',') ?? '';
+      const conversation = await slackApp.client.conversations.open({
+        users: userString,
+      });
+      const channelId = conversation.channel?.id || '';
+
+      // Send 3-month inactivity notification if there are changes
+      if (
+        (inactivity3mResults.suspended && inactivity3mResults.suspended.length > 0) ||
+        inactivity3mResults.errors.length > 0
+      ) {
+        const msg = formatAtlassianInactivityMessages(inactivity3mResults, dryRun);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: dryRun
+            ? '[DRY RUN] Atlassian 3-month inactivity check results'
+            : 'Atlassian 3-month inactivity check results',
+          blocks: msg.blocks,
+        });
+      }
+
+      // Send 6-month deletion notification if there are changes
+      if (
+        (inactivity6mResults.deleted && inactivity6mResults.deleted.length > 0) ||
+        inactivity6mResults.errors.length > 0
+      ) {
+        const msg = formatAtlassianInactivityMessages(inactivity6mResults, dryRun);
+        await slackApp.client.chat.postMessage({
+          token: envVars.SLACK_BOT_TOKEN,
+          channel: channelId,
+          text: dryRun
+            ? '[DRY RUN] Atlassian 6-month inactivity check results'
+            : 'Atlassian 6-month inactivity check results',
+          blocks: msg.blocks,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error sending Slack notifications:', error);
+  }
+
+  const syncEndTime = new Date().toISOString();
+  console.log(`[${syncEndTime}] [Completed] Atlassian inactivity periodic check.`);
+}
+
+await slackApp.start(envVars.PORT);
 console.log('⚡️ Slack bot is running!');
 
-const cronJob = new CronJob(
-  process.env.CRON_SCHEDULE || '0 0 0 * * *',
-  syncPeriodically,
+// Start CRON jobs - fourth parameter 'false' means don't run immediately, only on schedule
+const githubCronJob = new CronJob(envVars.CRON_SCHEDULE, syncPeriodically, null, false);
+githubCronJob.start();
+
+const atlassianCronJob = new CronJob(
+  envVars.ATLASSIAN_INACTIVITY_CRON_SCHEDULE,
+  suspendAtlassianUsersPeriodically,
   null,
-  true,
+  false,
 );
-cronJob.start();
+atlassianCronJob.start();
