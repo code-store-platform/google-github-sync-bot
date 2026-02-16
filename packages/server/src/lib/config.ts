@@ -1,4 +1,9 @@
+import * as path from 'node:path';
+import * as dotenv from 'dotenv';
 import { z } from 'zod';
+
+// Load .env from monorepo root (two levels up from packages/server)
+dotenv.config({ path: path.resolve(import.meta.dirname, '../../../../.env') });
 
 const envVariables = z.object({
   GOOGLE_APPLICATION_CREDENTIALS: z.string(),
@@ -9,6 +14,9 @@ const envVariables = z.object({
   SLACK_SIGNING_SECRET: z.string(),
   SLACK_APP_TOKEN: z.string(),
   PORT: z.string().default('3000'),
+  API_PORT: z.string().default('4000'),
+  CORS_ORIGIN: z.string().default('http://localhost:3001'),
+  DATABASE_URL: z.string().default('postgres://postgres:postgres@localhost:5432/dashboard'),
   CRON_SCHEDULE: z.string().default('0 0 0 * * *'),
   REMOVE_STOP_LIST: z
     .string()

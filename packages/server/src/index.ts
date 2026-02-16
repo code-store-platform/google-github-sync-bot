@@ -1,7 +1,11 @@
 import { App } from '@slack/bolt';
 import { CronJob } from 'cron';
-import * as dotenv from 'dotenv';
+import { Hono } from 'hono';
 import { envVars } from './lib/config';
+import { corsMiddleware } from './middleware/cors';
+import { errorHandler } from './middleware/error-handler';
+import { syncRoutes } from './routes/sync';
+import { userRoutes } from './routes/users';
 import {
   type AtlassianInactivityResult,
   type AtlassianSyncResult,
@@ -14,7 +18,24 @@ import {
   formatMessages,
 } from './services/slack-notifier';
 
-dotenv.config();
+// ── Hono API Server ──────────────────────────────────────────────────────────
+
+const api = new Hono();
+
+api.use('*', corsMiddleware);
+api.onError(errorHandler);
+
+api.get('/health', (c) => c.json({ status: 'ok' }));
+api.route('/api/users', userRoutes);
+api.route('/api/sync', syncRoutes);
+
+Bun.serve({
+  port: Number(envVars.API_PORT),
+  fetch: api.fetch,
+});
+console.log(`API server running on port ${envVars.API_PORT}`);
+
+// ── Slack Bot ─────────────────────────────────────────────────────────────────
 
 const slackApp = new App({
   signingSecret: envVars.SLACK_SIGNING_SECRET,
@@ -118,6 +139,8 @@ slackApp.command('/check-atlassian-6m', async ({ ack, respond }) => {
     console.error('Error during 6-month inactivity check', error);
   }
 });
+
+// ── Periodic Sync Functions ───────────────────────────────────────────────────
 
 async function syncPeriodically() {
   const syncStartTime = new Date().toISOString();
@@ -290,8 +313,10 @@ async function suspendAtlassianUsersPeriodically() {
   console.log(`[${syncEndTime}] [Completed] Atlassian inactivity periodic check.`);
 }
 
+// ── Start Services ────────────────────────────────────────────────────────────
+
 await slackApp.start(envVars.PORT);
-console.log('⚡️ Slack bot is running!');
+console.log('Slack bot is running!');
 
 // Start CRON jobs - fourth parameter 'false' means don't run immediately, only on schedule
 const githubCronJob = new CronJob(envVars.CRON_SCHEDULE, syncPeriodically, null, false);

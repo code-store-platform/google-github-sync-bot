@@ -1,0 +1,26 @@
+{
+  "name": "@google-github-sync/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "db:push": "bunx drizzle-kit push",
+    "db:studio": "bunx drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "@slack/bolt": "^4.6.0",
+    "cron": "^4.4.0",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.39.3",
+    "effect": "^3.19.14",
+    "googleapis": "^170.0.0",
+    "hono": "^4.7.4",
+    "octokit": "^4.1.4",
+    "postgres": "^3.4.5",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30.5"
+  }
+}
