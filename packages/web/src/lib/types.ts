@@ -31,3 +31,32 @@ export type SyncHistoryEntry = {
   details: unknown;
   triggeredBy: string;
 };
+
+// ── Teams ────────────────────────────────────────────────────────────────────
+
+export type TeamPrivacy = 'closed' | 'secret';
+export type TeamMemberRole = 'member' | 'maintainer';
+
+export type TeamListItem = {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  privacy: TeamPrivacy;
+  membersCount: number;
+  reposCount: number;
+  htmlUrl: string;
+};
+
+export type TeamDetail = TeamListItem & {
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TeamMember = {
+  login: string;
+  id: number;
+  avatarUrl: string;
+  role: TeamMemberRole;
+  htmlUrl: string;
+};

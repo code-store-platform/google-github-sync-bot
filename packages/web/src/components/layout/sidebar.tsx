@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 
 const navItems = [
   { href: '/users', label: 'Users', icon: Users, enabled: true },
-  { href: '/teams', label: 'Teams', icon: GitBranch, enabled: false },
+  { href: '/teams', label: 'Teams', icon: GitBranch, enabled: true },
   { href: '/repos', label: 'Repos', icon: FolderGit2, enabled: false },
 ];
 

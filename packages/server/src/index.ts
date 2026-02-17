@@ -5,6 +5,7 @@ import { envVars } from './lib/config';
 import { corsMiddleware } from './middleware/cors';
 import { errorHandler } from './middleware/error-handler';
 import { syncRoutes } from './routes/sync';
+import { teamRoutes } from './routes/teams';
 import { userRoutes } from './routes/users';
 import {
   type AtlassianInactivityResult,
@@ -27,6 +28,7 @@ api.onError(errorHandler);
 
 api.get('/health', (c) => c.json({ status: 'ok' }));
 api.route('/api/users', userRoutes);
+api.route('/api/teams', teamRoutes);
 api.route('/api/sync', syncRoutes);
 
 Bun.serve({

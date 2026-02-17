@@ -83,10 +83,7 @@ export async function getWorkspaceUser(
   }
 }
 
-export async function updateUserCustomSchema(
-  email: string,
-  githubUsername: string,
-): Promise<void> {
+export async function updateUserCustomSchema(email: string, githubUsername: string): Promise<void> {
   const auth = createGoogleAuthReadWrite();
   const directory = google.admin({
     version: 'directory_v1',

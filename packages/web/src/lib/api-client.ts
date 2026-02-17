@@ -1,4 +1,11 @@
-import type { UserDetail, UserListItem, SyncHistoryEntry } from './types';
+import type {
+  UserDetail,
+  UserListItem,
+  SyncHistoryEntry,
+  TeamListItem,
+  TeamDetail,
+  TeamMember,
+} from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -36,4 +43,42 @@ export const api = {
     }),
 
   getSyncHistory: (limit = 20) => fetchApi<SyncHistoryEntry[]>(`/api/sync/history?limit=${limit}`),
+
+  // ── Teams ──────────────────────────────────────────────────────────────────
+
+  getTeams: () => fetchApi<TeamListItem[]>('/api/teams'),
+
+  getTeam: (slug: string) => fetchApi<TeamDetail>(`/api/teams/${encodeURIComponent(slug)}`),
+
+  createTeam: (params: { name: string; description?: string; privacy?: string }) =>
+    fetchApi<TeamDetail>('/api/teams', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  updateTeam: (slug: string, params: { name?: string; description?: string; privacy?: string }) =>
+    fetchApi<TeamDetail>(`/api/teams/${encodeURIComponent(slug)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(params),
+    }),
+
+  deleteTeam: (slug: string) =>
+    fetchApi<{ success: boolean }>(`/api/teams/${encodeURIComponent(slug)}`, {
+      method: 'DELETE',
+    }),
+
+  getTeamMembers: (slug: string) =>
+    fetchApi<TeamMember[]>(`/api/teams/${encodeURIComponent(slug)}/members`),
+
+  addTeamMember: (slug: string, params: { username: string; role?: string }) =>
+    fetchApi<{ success: boolean }>(`/api/teams/${encodeURIComponent(slug)}/members`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  removeTeamMember: (slug: string, username: string) =>
+    fetchApi<{ success: boolean }>(
+      `/api/teams/${encodeURIComponent(slug)}/members/${encodeURIComponent(username)}`,
+      { method: 'DELETE' },
+    ),
 };
