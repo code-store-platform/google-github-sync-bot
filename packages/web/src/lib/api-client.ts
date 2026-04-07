@@ -1,6 +1,8 @@
 import type {
   UserDetail,
   UserListItem,
+  UserTeamMembership,
+  UserReposResponse,
   SyncHistoryEntry,
   SyncJob,
   TeamListItem,
@@ -40,6 +42,12 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ githubUsername }),
     }),
+
+  getUserTeams: (email: string) =>
+    fetchApi<UserTeamMembership[]>(`/api/users/${encodeURIComponent(email)}/teams`),
+
+  getUserRepos: (email: string) =>
+    fetchApi<UserReposResponse>(`/api/users/${encodeURIComponent(email)}/repos`),
 
   triggerSync: () =>
     fetchApi<{ id: string; status: string }>('/api/sync/github', {
@@ -121,6 +129,18 @@ export const api = {
   removeRepoTeamAccess: (name: string, teamSlug: string) =>
     fetchApi<{ success: boolean }>(
       `/api/repos/${encodeURIComponent(name)}/teams/${encodeURIComponent(teamSlug)}`,
+      { method: 'DELETE' },
+    ),
+
+  addRepoCollaborator: (name: string, username: string, permission: string) =>
+    fetchApi<{ success: boolean }>(
+      `/api/repos/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`,
+      { method: 'PUT', body: JSON.stringify({ permission }) },
+    ),
+
+  removeRepoCollaborator: (name: string, username: string) =>
+    fetchApi<{ success: boolean }>(
+      `/api/repos/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`,
       { method: 'DELETE' },
     ),
 };

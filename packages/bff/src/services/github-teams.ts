@@ -180,4 +180,28 @@ export class GitHubTeamsService {
       username,
     });
   }
+
+  async listTeamsForUser(
+    username: string,
+  ): Promise<(GitHubTeam & { role: 'member' | 'maintainer' })[]> {
+    const allTeams = await this.listTeams();
+
+    const results = await Promise.allSettled(
+      allTeams.map(async (team) => {
+        const { data } = await this.octokit.rest.teams.getMembershipForUserInOrg({
+          org: this.orgName,
+          team_slug: team.slug,
+          username,
+        });
+        return { ...team, role: data.role as 'member' | 'maintainer' };
+      }),
+    );
+
+    return results
+      .filter(
+        (r): r is PromiseFulfilledResult<GitHubTeam & { role: 'member' | 'maintainer' }> =>
+          r.status === 'fulfilled',
+      )
+      .map((r) => r.value);
+  }
 }

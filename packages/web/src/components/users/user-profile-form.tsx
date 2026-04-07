@@ -22,6 +22,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { StatusBadge } from './status-badge';
+import { UserTeamsCard } from './user-teams-card';
+import { UserReposCard } from './user-repos-card';
 
 export function UserProfileForm({ email }: { email: string }) {
   const { toast } = useToast();
@@ -195,6 +197,12 @@ export function UserProfileForm({ email }: { email: string }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Teams */}
+      <UserTeamsCard user={user} />
+
+      {/* Repositories */}
+      <UserReposCard user={user} />
 
       {/* Confirmation Dialog */}
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>

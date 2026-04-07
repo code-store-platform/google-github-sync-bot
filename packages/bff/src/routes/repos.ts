@@ -116,3 +116,48 @@ repoRoutes.delete('/:name/teams/:teamSlug', async (c) => {
 
   return c.json({ success: true });
 });
+
+repoRoutes.put('/:name/collaborators/:username', async (c) => {
+  const name = c.req.param('name');
+  const username = c.req.param('username');
+  const body = await c.req.json<{ permission?: string }>();
+
+  const permission = body.permission || 'push';
+
+  if (!validPermissions.has(permission)) {
+    throw new HTTPException(400, {
+      message: 'permission must be "pull", "triage", "push", "maintain", or "admin"',
+    });
+  }
+
+  await reposService.addCollaborator(
+    name,
+    username,
+    permission as 'pull' | 'triage' | 'push' | 'maintain' | 'admin',
+  );
+
+  await db.insert(auditLog).values({
+    action: 'add_repo_collaborator',
+    entityType: 'repo',
+    entityId: name,
+    payload: { username, permission },
+  });
+
+  return c.json({ success: true });
+});
+
+repoRoutes.delete('/:name/collaborators/:username', async (c) => {
+  const name = c.req.param('name');
+  const username = c.req.param('username');
+
+  await reposService.removeCollaborator(name, username);
+
+  await db.insert(auditLog).values({
+    action: 'remove_repo_collaborator',
+    entityType: 'repo',
+    entityId: name,
+    payload: { username },
+  });
+
+  return c.json({ success: true });
+});

@@ -4,6 +4,8 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { db } from '../db';
 import { GitHubMembershipService } from '../services/github-membership';
+import { GitHubReposService } from '../services/github-repos';
+import { GitHubTeamsService } from '../services/github-teams';
 import {
   createGoogleAuth,
   getWorkspaceUser,
@@ -15,6 +17,8 @@ export const userRoutes = new Hono();
 
 const auth = createGoogleAuth();
 const membership = new GitHubMembershipService();
+const teamsService = new GitHubTeamsService();
+const reposService = new GitHubReposService();
 
 export type UserStatus = 'member' | 'pending_invite' | 'not_linked' | 'linked_not_in_org';
 
@@ -59,6 +63,48 @@ userRoutes.get('/', async (c) => {
   });
 
   return c.json(users);
+});
+
+userRoutes.get('/:email/teams', async (c) => {
+  const email = decodeURIComponent(c.req.param('email'));
+
+  const user = await getWorkspaceUser(auth, email);
+  if (!user) {
+    throw new HTTPException(404, { message: 'User not found' });
+  }
+
+  const githubUsername = getGitHubUsername(user);
+  if (!githubUsername) {
+    return c.json([]);
+  }
+
+  const teams = await teamsService.listTeamsForUser(githubUsername);
+  return c.json(teams);
+});
+
+userRoutes.get('/:email/repos', async (c) => {
+  const email = decodeURIComponent(c.req.param('email'));
+
+  const user = await getWorkspaceUser(auth, email);
+  if (!user) {
+    throw new HTTPException(404, { message: 'User not found' });
+  }
+
+  const githubUsername = getGitHubUsername(user);
+  if (!githubUsername) {
+    return c.json({ direct: [], teams: [] });
+  }
+
+  const userTeams = await teamsService.listTeamsForUser(githubUsername);
+
+  const [direct, teams] = await Promise.all([
+    reposService.listDirectCollaboratorRepos(githubUsername),
+    reposService.listReposViaTeams(
+      userTeams.map((t) => ({ slug: t.slug, name: t.name })),
+    ),
+  ]);
+
+  return c.json({ direct, teams });
 });
 
 userRoutes.get('/:email', async (c) => {

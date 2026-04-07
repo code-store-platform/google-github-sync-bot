@@ -32,6 +32,40 @@ export type GitHubRepoTeam = {
   htmlUrl: string;
 };
 
+export type GitHubCollaboratorRepo = {
+  name: string;
+  fullName: string;
+  description: string | null;
+  visibility: 'public' | 'private';
+  htmlUrl: string;
+  archived: boolean;
+  permission: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+};
+
+export type GitHubTeamRepoAccess = {
+  name: string;
+  fullName: string;
+  description: string | null;
+  visibility: 'public' | 'private';
+  htmlUrl: string;
+  archived: boolean;
+  permission: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+  teamSlug: string;
+  teamName: string;
+};
+
+// GitHub API returns "read"/"write" in role_name but expects "pull"/"push" when writing
+function normalizePermission(role: string): GitHubCollaboratorRepo['permission'] {
+  switch (role) {
+    case 'read':
+      return 'pull';
+    case 'write':
+      return 'push';
+    default:
+      return role as GitHubCollaboratorRepo['permission'];
+  }
+}
+
 export class GitHubReposService {
   private octokit: Octokit;
   private readonly orgName: string;
@@ -174,6 +208,102 @@ export class GitHubReposService {
       team_slug: teamSlug,
       owner: this.orgName,
       repo: name,
+    });
+  }
+
+  async listDirectCollaboratorRepos(username: string): Promise<GitHubCollaboratorRepo[]> {
+    const repos = await this.listRepos();
+
+    // Check direct collaborator status for each repo
+    const results = await Promise.allSettled(
+      repos.map(async (repo) => {
+        // List direct collaborators (affiliation=direct) and check if user is among them
+        const collaborators = await this.octokit.paginate(
+          this.octokit.rest.repos.listCollaborators,
+          {
+            owner: this.orgName,
+            repo: repo.name,
+            affiliation: 'direct',
+            per_page: 100,
+          },
+        );
+
+        const match = collaborators.find(
+          (c) => c.login.toLowerCase() === username.toLowerCase(),
+        );
+        if (!match) throw new Error('Not a direct collaborator');
+
+        const permission = normalizePermission(match.role_name ?? 'pull');
+        return {
+          name: repo.name,
+          fullName: repo.fullName,
+          description: repo.description,
+          visibility: repo.visibility,
+          htmlUrl: repo.htmlUrl,
+          archived: repo.archived,
+          permission,
+        };
+      }),
+    );
+
+    return results
+      .filter(
+        (r): r is PromiseFulfilledResult<GitHubCollaboratorRepo> => r.status === 'fulfilled',
+      )
+      .map((r) => r.value);
+  }
+
+  async listReposViaTeams(
+    userTeams: { slug: string; name: string }[],
+  ): Promise<GitHubTeamRepoAccess[]> {
+    const teamRepos: GitHubTeamRepoAccess[] = [];
+
+    await Promise.all(
+      userTeams.map(async (team) => {
+        const repos = await this.octokit.paginate(this.octokit.rest.teams.listReposInOrg, {
+          org: this.orgName,
+          team_slug: team.slug,
+          per_page: 100,
+        });
+
+        for (const r of repos) {
+          teamRepos.push({
+            name: r.name,
+            fullName: r.full_name,
+            description: r.description ?? null,
+            visibility:
+              (r.visibility as 'public' | 'private') || (r.private ? 'private' : 'public'),
+            htmlUrl: r.html_url,
+            archived: r.archived ?? false,
+            permission: normalizePermission(r.role_name ?? 'push'),
+            teamSlug: team.slug,
+            teamName: team.name,
+          });
+        }
+      }),
+    );
+
+    return teamRepos;
+  }
+
+  async addCollaborator(
+    repoName: string,
+    username: string,
+    permission: GitHubCollaboratorRepo['permission'],
+  ): Promise<void> {
+    await this.octokit.rest.repos.addCollaborator({
+      owner: this.orgName,
+      repo: repoName,
+      username,
+      permission,
+    });
+  }
+
+  async removeCollaborator(repoName: string, username: string): Promise<void> {
+    await this.octokit.rest.repos.removeCollaborator({
+      owner: this.orgName,
+      repo: repoName,
+      username,
     });
   }
 }

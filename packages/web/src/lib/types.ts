@@ -74,6 +74,10 @@ export type TeamMember = {
   htmlUrl: string;
 };
 
+export type UserTeamMembership = TeamListItem & {
+  role: TeamMemberRole;
+};
+
 // ── Repos ───────────────────────────────────────────────────────────────────
 
 export type RepoVisibility = 'public' | 'private';
@@ -108,4 +112,24 @@ export type RepoTeam = {
   name: string;
   permission: RepoTeamPermission;
   htmlUrl: string;
+};
+
+export type CollaboratorRepo = {
+  name: string;
+  fullName: string;
+  description: string | null;
+  visibility: RepoVisibility;
+  htmlUrl: string;
+  archived: boolean;
+  permission: RepoTeamPermission;
+};
+
+export type TeamRepoAccess = CollaboratorRepo & {
+  teamSlug: string;
+  teamName: string;
+};
+
+export type UserReposResponse = {
+  direct: CollaboratorRepo[];
+  teams: TeamRepoAccess[];
 };
