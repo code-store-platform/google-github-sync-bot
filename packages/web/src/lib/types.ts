@@ -32,6 +32,19 @@ export type SyncHistoryEntry = {
   triggeredBy: string;
 };
 
+export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export type SyncJob = {
+  id: string;
+  type: string;
+  status: SyncJobStatus;
+  triggeredBy: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  result: unknown;
+};
+
 // ── Teams ────────────────────────────────────────────────────────────────────
 
 export type TeamPrivacy = 'closed' | 'secret';
@@ -58,5 +71,41 @@ export type TeamMember = {
   id: number;
   avatarUrl: string;
   role: TeamMemberRole;
+  htmlUrl: string;
+};
+
+// ── Repos ───────────────────────────────────────────────────────────────────
+
+export type RepoVisibility = 'public' | 'private';
+export type RepoTeamPermission = 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+
+export type RepoListItem = {
+  id: number;
+  name: string;
+  fullName: string;
+  description: string | null;
+  visibility: RepoVisibility;
+  language: string | null;
+  stargazersCount: number;
+  forksCount: number;
+  openIssuesCount: number;
+  updatedAt: string;
+  htmlUrl: string;
+  archived: boolean;
+};
+
+export type RepoDetail = RepoListItem & {
+  defaultBranch: string;
+  homepage: string | null;
+  topics: string[];
+  createdAt: string;
+  license: string | null;
+};
+
+export type RepoTeam = {
+  id: number;
+  slug: string;
+  name: string;
+  permission: RepoTeamPermission;
   htmlUrl: string;
 };

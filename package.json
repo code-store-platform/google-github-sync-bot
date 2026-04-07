@@ -7,10 +7,12 @@
     "prepare": "effect-language-service patch",
     "format": "biome format --write",
     "lint": "biome lint",
-    "dev:server": "bun run --cwd packages/server dev",
+    "dev:bff": "bun run --cwd packages/bff dev",
+    "dev:worker": "bun run --cwd packages/worker dev",
     "dev:web": "bun run --cwd packages/web dev",
-    "db:push": "bun run --cwd packages/server db:push",
-    "db:studio": "bun run --cwd packages/server db:studio"
+    "dev": "bun run dev:bff & bun run dev:worker & bun run dev:web",
+    "db:push": "bun run --cwd packages/shared db:push",
+    "db:studio": "bun run --cwd packages/shared db:studio"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",

@@ -1,0 +1,19 @@
+{
+  "name": "@google-github-sync/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {
+    "@google-github-sync/shared": "workspace:*",
+    "@slack/web-api": "^7.9.1",
+    "cron": "^4.4.0",
+    "drizzle-orm": "^0.39.3",
+    "effect": "^3.19.14",
+    "googleapis": "^170.0.0",
+    "octokit": "^4.1.4",
+    "postgres": "^3.4.5",
+    "zod": "^4.3.5"
+  }
+}

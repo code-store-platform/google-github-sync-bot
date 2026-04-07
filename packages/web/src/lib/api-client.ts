@@ -2,9 +2,13 @@ import type {
   UserDetail,
   UserListItem,
   SyncHistoryEntry,
+  SyncJob,
   TeamListItem,
   TeamDetail,
   TeamMember,
+  RepoListItem,
+  RepoDetail,
+  RepoTeam,
 } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -38,9 +42,11 @@ export const api = {
     }),
 
   triggerSync: () =>
-    fetchApi<{ invited: unknown[]; removed: string[]; errors: string[] }>('/api/sync/github', {
+    fetchApi<{ id: string; status: string }>('/api/sync/github', {
       method: 'POST',
     }),
+
+  getSyncJobStatus: (jobId: string) => fetchApi<SyncJob>(`/api/sync/jobs/${jobId}`),
 
   getSyncHistory: (limit = 20) => fetchApi<SyncHistoryEntry[]>(`/api/sync/history?limit=${limit}`),
 
@@ -79,6 +85,42 @@ export const api = {
   removeTeamMember: (slug: string, username: string) =>
     fetchApi<{ success: boolean }>(
       `/api/teams/${encodeURIComponent(slug)}/members/${encodeURIComponent(username)}`,
+      { method: 'DELETE' },
+    ),
+
+  // ── Repos ──────────────────────────────────────────────────────────────────
+
+  getRepos: () => fetchApi<RepoListItem[]>('/api/repos'),
+
+  getRepo: (name: string) => fetchApi<RepoDetail>(`/api/repos/${encodeURIComponent(name)}`),
+
+  updateRepo: (
+    name: string,
+    params: {
+      description?: string;
+      homepage?: string;
+      visibility?: string;
+      archived?: boolean;
+      topics?: string[];
+    },
+  ) =>
+    fetchApi<RepoDetail>(`/api/repos/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(params),
+    }),
+
+  getRepoTeams: (name: string) =>
+    fetchApi<RepoTeam[]>(`/api/repos/${encodeURIComponent(name)}/teams`),
+
+  addRepoTeamAccess: (name: string, teamSlug: string, permission: string) =>
+    fetchApi<{ success: boolean }>(
+      `/api/repos/${encodeURIComponent(name)}/teams/${encodeURIComponent(teamSlug)}`,
+      { method: 'PUT', body: JSON.stringify({ permission }) },
+    ),
+
+  removeRepoTeamAccess: (name: string, teamSlug: string) =>
+    fetchApi<{ success: boolean }>(
+      `/api/repos/${encodeURIComponent(name)}/teams/${encodeURIComponent(teamSlug)}`,
       { method: 'DELETE' },
     ),
 };

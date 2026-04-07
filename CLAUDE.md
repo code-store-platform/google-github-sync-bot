@@ -4,33 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Google-GitHub Sync is a tool that synchronizes Google Workspace users with GitHub organization members and Atlassian.
-It automatically invites users with GitHub usernames to a GitHub organization and removes users who are no longer in Google Workspace.
-It automatically removes users who are no longer in Google Workspace from Atlassian.
-It automatically suspends users who are no longer active in Atlassian.
-The tool provides a Slack bot interface for manual triggers, scheduled synchronization via cron jobs, and an admin dashboard for visual management.
+Google-GitHub Sync is an open-source tool that synchronizes Google Workspace users with GitHub organization members. It automatically invites users with GitHub usernames to a GitHub organization and removes users who are no longer in Google Workspace. Atlassian integration is available behind a feature flag (`ATLASSIAN_ENABLED`). Slack is used for notifications only (not as a bot). The tool provides scheduled synchronization via cron jobs and an admin dashboard for visual management.
 
 ## Monorepo Structure
 
 ```
 /
 ├── packages/
-│   ├── server/          # Hono API + Slack bot + Cron (Process 1)
+│   ├── shared/          # Shared DB schema, types, utils
 │   │   └── src/
-│   │       ├── index.ts           # Hono server + Slack bot + cron jobs
-│   │       ├── lib/config.ts      # Centralized config with Zod validation
-│   │       ├── lib/utils.ts       # Utility functions
-│   │       ├── db/schema.ts       # Drizzle ORM schema (audit_log, sync_history)
-│   │       ├── db/index.ts        # Drizzle client
-│   │       ├── middleware/         # Hono middleware (CORS, error handler)
-│   │       ├── routes/            # API routes (users, sync)
-│   │       └── services/          # Business logic (google, github, atlassian, slack)
-│   └── web/             # Next.js dashboard (Process 2)
+│   │       ├── db/schema.ts       # Drizzle ORM schema (audit_log, sync_history, sync_jobs)
+│   │       ├── db/index.ts        # DB client factory (createDb)
+│   │       ├── utils.ts           # normalizeGitHubUsername, normalizeEmail
+│   │       └── index.ts           # Barrel export
+│   ├── bff/             # Hono API for the dashboard (Process 1)
+│   │   └── src/
+│   │       ├── index.ts           # Hono server entry
+│   │       ├── lib/config.ts      # BFF-specific config (Zod validation)
+│   │       ├── db/index.ts        # DB client instance
+│   │       ├── middleware/         # CORS, error handler
+│   │       ├── routes/            # API routes (users, teams, repos, sync)
+│   │       └── services/          # Google Workspace, GitHub teams/repos/membership
+│   ├── worker/          # Effect.ts sync engine (Process 2)
+│   │   └── src/
+│   │       ├── index.ts           # Worker entry (job processor + cron)
+│   │       ├── lib/config.ts      # Worker-specific config (Zod validation)
+│   │       └── services/          # Effect services (Google, GitHub, Slack, sync engine)
+│   │           └── atlassian/     # Feature-flagged Atlassian integration
+│   └── web/             # Next.js dashboard (Process 3)
 │       └── src/
 │           ├── app/               # Next.js App Router pages
-│           ├── components/        # React components (layout, users, ui)
+│           ├── components/        # React components (layout, users, teams, repos, ui)
 │           ├── hooks/             # Custom hooks (use-toast)
 │           └── lib/               # API client, types, utils
+├── docs/                # Architecture documentation
 ├── package.json         # Bun workspace root
 ├── biome.json           # Shared linter/formatter
 ├── tsconfig.base.json   # Shared TS config
@@ -44,14 +51,16 @@ The tool provides a Slack bot interface for manual triggers, scheduled synchroni
 bun install
 ```
 
-**Start API server + Slack bot + cron:**
+**Start all services:**
 ```bash
-bun run dev:server
+bun run dev
 ```
 
-**Start Next.js dashboard:**
+**Start individually:**
 ```bash
-bun run dev:web
+bun run dev:bff      # Hono API on port 4000
+bun run dev:worker   # Sync worker
+bun run dev:web      # Next.js on port 3001
 ```
 
 **Database:**
@@ -73,37 +82,68 @@ bun run lint
 
 ## Architecture
 
-### Server (packages/server)
+### BFF/Worker Split
+
+The system is split into two backend processes sharing the same PostgreSQL database:
+
+- **BFF** (`packages/bff`): Stateless Hono API serving the dashboard. Handles user CRUD, team/repo management (direct GitHub API calls), audit logging, and enqueuing sync jobs.
+- **Worker** (`packages/worker`): Effect.ts-based sync engine. Picks up jobs from `sync_jobs` table via Postgres LISTEN/NOTIFY + polling fallback. Runs cron-scheduled syncs. Sends Slack notifications.
+
+Communication: BFF writes to `sync_jobs` table, worker picks up and processes jobs. No direct HTTP calls between them.
+
+### BFF (packages/bff)
 
 **Hono API** on port 4000:
 - `GET /health` — Health check
 - `GET /api/users` — List workspace users with GitHub membership status
 - `GET /api/users/:email` — Single user detail
 - `PATCH /api/users/:email/github-username` — Update GitHub username in Google Workspace
-- `POST /api/sync/github` — Trigger manual GitHub sync
-- `GET /api/sync/history` — Query sync history
+- `POST /api/sync/github` — Enqueue a GitHub sync job (returns job ID, 202)
+- `GET /api/sync/jobs/:id` — Poll job status
+- `GET /api/sync/history` — Query completed sync history
+- `GET /api/teams` — List GitHub teams
+- `POST /api/teams` — Create team
+- `GET /api/teams/:slug` — Team detail
+- `PATCH /api/teams/:slug` — Update team
+- `DELETE /api/teams/:slug` — Delete team
+- `GET /api/teams/:slug/members` — List team members
+- `POST /api/teams/:slug/members` — Add member
+- `DELETE /api/teams/:slug/members/:username` — Remove member
+- `GET /api/repos` — List repos
+- `GET /api/repos/:name` — Repo detail
+- `PATCH /api/repos/:name` — Update repo
+- `GET /api/repos/:name/teams` — List teams with access
+- `PUT /api/repos/:name/teams/:teamSlug` — Add/update team access
+- `DELETE /api/repos/:name/teams/:teamSlug` — Remove team access
 
-**Slack Bot** on port 3000 (Socket Mode):
-- `/sync-github` — Manual GitHub sync
-- `/sync-atlassian` — Manual Atlassian suspension sync
-- `/check-atlassian-3m` — Check 3-month inactivity
-- `/check-atlassian-6m` — Check 6-month inactivity
+### Worker (packages/worker)
+
+**Effect.ts services:**
+- `GoogleWorkspaceService` — Fetch workspace users
+- `GitHubService` — List members, invite, remove
+- `SlackNotificationService` — Send notifications via `@slack/web-api`
+- `SyncJobRepo` — Read/write sync_jobs and sync_history tables
+- `SyncEngine` — Orchestrates the GitHub sync pipeline
 
 **Cron Jobs:**
-- GitHub + Atlassian suspension sync (configurable schedule)
-- Atlassian inactivity check (configurable schedule)
+- GitHub sync (configurable schedule via `CRON_SCHEDULE`)
+- Atlassian inactivity check (feature-flagged, `ATLASSIAN_INACTIVITY_CRON_SCHEDULE`)
 
-**Database** (PostgreSQL via Drizzle ORM):
-- `audit_log` — Tracks admin actions (e.g., GitHub username changes)
-- `sync_history` — Records sync executions with results
+### Database (PostgreSQL via Drizzle ORM)
+
+Schema lives in `packages/shared/src/db/schema.ts`:
+- `audit_log` — Tracks admin actions from BFF (username changes, team/repo ops)
+- `sync_history` — Permanent log of completed sync executions
+- `sync_jobs` — Transient job queue (BFF writes, worker consumes)
 
 ### Web Dashboard (packages/web)
 
 **Next.js 15** with App Router on port 3001:
 - User directory with search, filter, sort
 - User profile with GitHub username editing
-- Status badges (member, pending, not linked, not in org)
-- Sidebar navigation (Teams and Repos disabled, future phases)
+- Teams management (CRUD + members)
+- Repos management (settings + team access)
+- Async sync: triggers job, polls for status
 
 **Tech Stack:**
 - TanStack Query for data fetching
@@ -117,7 +157,7 @@ bun run lint
 - Requires `admin.directory.user` scope (read + write)
 - Impersonates admin user via `subject` field
 - Fetches up to 300 users with custom schema projection
-- GitHub usernames are stored in `customSchemas['3rd-party_tools'].GitHub_Username`
+- GitHub usernames stored in `customSchemas['3rd-party_tools'].GitHub_Username`
 
 **GitHub Integration:**
 - Uses Octokit with personal access token
@@ -126,40 +166,53 @@ bun run lint
 - Invites users by `invitee_id` (not by email)
 - All username comparisons are case-insensitive via `.toLowerCase()`
 
+**Sync Job Flow:**
+1. BFF inserts row into `sync_jobs` (status: `pending`)
+2. BFF sends `NOTIFY sync_jobs_channel` to Postgres
+3. Worker picks up job, sets status to `running`
+4. Worker executes sync (Google -> GitHub diff, invite/remove)
+5. Worker writes result to `sync_history`, updates `sync_jobs` status
+6. Dashboard polls `GET /api/sync/jobs/:id` for status
+
 **Remove Stop List:**
-- Environment variable `REMOVE_STOP_LIST` contains comma-separated usernames
-- These users will never be removed from GitHub org, even if not in Workspace
-- Useful for bot accounts or external collaborators
+- `REMOVE_STOP_LIST` env var: comma-separated GitHub usernames never removed from org
+
+**Atlassian (feature-flagged):**
+- Enabled via `ATLASSIAN_ENABLED=true`
+- Suspends users not in Google Workspace
+- Checks 3-month / 6-month inactivity (suspend / delete)
+- Supports dry-run mode via `ATLASSIAN_DRY_RUN`
 
 ## Environment Configuration
 
-All configuration is centralized in `packages/server/src/lib/config.ts` which validates environment variables at startup. The `.env` file lives at the monorepo root.
+Each package validates only its own required env vars. The `.env` file lives at the monorepo root.
 
-Required environment variables:
+**BFF env vars:**
 - `GOOGLE_APPLICATION_CREDENTIALS`: JSON string of service account credentials
 - `GOOGLE_ADMIN_EMAIL`: Admin email to impersonate
 - `GITHUB_TOKEN`: GitHub personal access token with org admin permissions
 - `GITHUB_ORG_NAME`: GitHub organization name
-- `SLACK_BOT_TOKEN`: Bot user OAuth token (xoxb-)
-- `SLACK_SIGNING_SECRET`: Slack app signing secret
-- `SLACK_APP_TOKEN`: App-level token for Socket Mode (xapp-)
-- `ATLASSIAN_API_KEY`: Atlassian Admin API key
-- `ATLASSIAN_ORG_ID`: Atlassian organization ID
-- `ATLASSIAN_ADMIN_EMAIL`: Atlassian admin user email
+- `DATABASE_URL` (default: `postgres://postgres:postgres@localhost:5432/dashboard`)
+- `API_PORT` (default: `4000`)
+- `CORS_ORIGIN` (default: `http://localhost:3001`)
 
-Optional:
-- `DATABASE_URL`: PostgreSQL connection string (default: `postgres://postgres:postgres@localhost:5432/dashboard`)
-- `API_PORT`: Hono API port (default: 4000)
-- `CORS_ORIGIN`: Allowed CORS origin (default: `http://localhost:3001`)
-- `PORT`: Slack app port (default: 3000)
-- `CRON_SCHEDULE`: GitHub sync cron schedule (default: midnight daily)
+**Worker env vars:**
+- `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_ADMIN_EMAIL`, `GITHUB_TOKEN`, `GITHUB_ORG_NAME`: Same as BFF
+- `DATABASE_URL` (default: `postgres://postgres:postgres@localhost:5432/dashboard`)
+- `CRON_SCHEDULE` (default: midnight daily)
 - `REMOVE_STOP_LIST`: Comma-separated GitHub usernames to never remove
-- `ATLASSIAN_DRY_RUN`: Enable dry-run mode for Atlassian operations
+- `SLACK_BOT_TOKEN` (optional): Bot user OAuth token for notifications
+- `SLACK_NOTIFICATION_CHANNEL` (optional): Channel ID for notifications
+- `ATLASSIAN_ENABLED` (default: `false`)
+- `ATLASSIAN_API_KEY`, `ATLASSIAN_ORG_ID`, `ATLASSIAN_ADMIN_EMAIL`: Required when Atlassian enabled
+- `ATLASSIAN_DRY_RUN`: Enable dry-run mode
+- `ATLASSIAN_INACTIVITY_CRON_SCHEDULE` (default: midnight daily)
 
 ## Runtime
 
 - Built for Bun runtime (not Node.js)
 - Uses TypeScript with strict mode enabled
-- No build step required for server (noEmit: true in tsconfig)
+- No build step required for BFF/worker (noEmit: true in tsconfig)
 - Next.js uses standard build process
+- Worker uses Effect.ts for structured concurrency, typed errors, and service layers
 - Prefer imports without extensions, DO NOT use .js extensions in import paths

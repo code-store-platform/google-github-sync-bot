@@ -1,0 +1,17 @@
+{
+  "name": "@google-github-sync/bff",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {
+    "@google-github-sync/shared": "workspace:*",
+    "drizzle-orm": "^0.39.3",
+    "googleapis": "^170.0.0",
+    "hono": "^4.7.4",
+    "octokit": "^4.1.4",
+    "postgres": "^3.4.5",
+    "zod": "^4.3.5"
+  }
+}

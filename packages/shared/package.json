@@ -1,0 +1,22 @@
+{
+  "name": "@google-github-sync/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./db": "./src/db/index.ts",
+    "./db/schema": "./src/db/schema.ts",
+    "./utils": "./src/utils.ts"
+  },
+  "scripts": {
+    "db:push": "bunx drizzle-kit push",
+    "db:studio": "bunx drizzle-kit studio"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.39.3",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30.5"
+  }
+}
