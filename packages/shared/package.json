@@ -9,6 +9,7 @@
     "./utils": "./src/utils.ts"
   },
   "scripts": {
+    "test": "bun test",
     "db:push": "bunx drizzle-kit push",
     "db:studio": "bunx drizzle-kit studio"
   },

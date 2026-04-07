@@ -80,6 +80,13 @@ bun run format
 bun run lint
 ```
 
+**Run tests:**
+```bash
+bun test --recursive
+```
+
+**IMPORTANT: Always run `bun test --recursive` after making code changes to ensure nothing is broken. Do not skip this step.**
+
 ## Architecture
 
 ### BFF/Worker Split
@@ -90,40 +97,6 @@ The system is split into two backend processes sharing the same PostgreSQL datab
 - **Worker** (`packages/worker`): Effect.ts-based sync engine. Picks up jobs from `sync_jobs` table via Postgres LISTEN/NOTIFY + polling fallback. Runs cron-scheduled syncs. Sends Slack notifications.
 
 Communication: BFF writes to `sync_jobs` table, worker picks up and processes jobs. No direct HTTP calls between them.
-
-### BFF (packages/bff)
-
-**Hono API** on port 4000:
-- `GET /health` — Health check
-- `GET /api/users` — List workspace users with GitHub membership status
-- `GET /api/users/:email` — Single user detail
-- `PATCH /api/users/:email/github-username` — Update GitHub username in Google Workspace
-- `POST /api/sync/github` — Enqueue a GitHub sync job (returns job ID, 202)
-- `GET /api/sync/jobs/:id` — Poll job status
-- `GET /api/sync/history` — Query completed sync history
-- `GET /api/teams` — List GitHub teams
-- `POST /api/teams` — Create team
-- `GET /api/teams/:slug` — Team detail
-- `PATCH /api/teams/:slug` — Update team
-- `DELETE /api/teams/:slug` — Delete team
-- `GET /api/teams/:slug/members` — List team members
-- `POST /api/teams/:slug/members` — Add member
-- `DELETE /api/teams/:slug/members/:username` — Remove member
-- `GET /api/repos` — List repos
-- `GET /api/repos/:name` — Repo detail
-- `PATCH /api/repos/:name` — Update repo
-- `GET /api/repos/:name/teams` — List teams with access
-- `PUT /api/repos/:name/teams/:teamSlug` — Add/update team access
-- `DELETE /api/repos/:name/teams/:teamSlug` — Remove team access
-
-### Worker (packages/worker)
-
-**Effect.ts services:**
-- `GoogleWorkspaceService` — Fetch workspace users
-- `GitHubService` — List members, invite, remove
-- `SlackNotificationService` — Send notifications via `@slack/web-api`
-- `SyncJobRepo` — Read/write sync_jobs and sync_history tables
-- `SyncEngine` — Orchestrates the GitHub sync pipeline
 
 **Cron Jobs:**
 - GitHub sync (configurable schedule via `CRON_SCHEDULE`)

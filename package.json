@@ -7,6 +7,7 @@
     "prepare": "effect-language-service patch",
     "format": "biome format --write",
     "lint": "biome lint",
+    "test": "bun test --recursive",
     "dev:bff": "bun run --cwd packages/bff dev",
     "dev:worker": "bun run --cwd packages/worker dev",
     "dev:web": "bun run --cwd packages/web dev",

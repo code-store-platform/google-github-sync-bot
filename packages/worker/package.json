@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts"
+    "dev": "bun run --env-file ../../.env --watch src/index.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@google-github-sync/shared": "workspace:*",

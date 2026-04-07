@@ -63,7 +63,7 @@ export function UserAutocomplete({
               {filteredUsers.map((user) => (
                 <CommandItem
                   key={user.email}
-                  value={user.githubUsername!}
+                  value={user.githubUsername ?? ''}
                   onSelect={(val) => {
                     onChange(val);
                     setOpen(false);
