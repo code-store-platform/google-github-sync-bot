@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from 'effect';
 import { WebClient } from '@slack/web-api';
-import { SlackError } from '../lib/errors';
+import { describeError, SlackError } from '../lib/errors';
 import { envVars } from '../lib/config';
 
 export type SlackBlock = {
@@ -40,7 +40,8 @@ export const SlackNotificationServiceLive = Layer.sync(SlackNotificationService,
                 blocks: params.blocks,
               });
             },
-            catch: (e) => new SlackError({ message: `Failed to send notification: ${e}` }),
+            catch: (e) =>
+              new SlackError({ message: `Failed to send notification: ${describeError(e)}` }),
           })
         : Effect.void,
   };

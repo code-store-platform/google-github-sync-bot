@@ -7,6 +7,7 @@ import { ArrowLeft, ExternalLink, X } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { api } from '@/lib/api-client';
+import { formatDate } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -206,11 +207,11 @@ function TeamInfoCard({
           </div>
           <div className="space-y-1 text-sm">
             <p className="font-medium">Created</p>
-            <p className="text-muted-foreground">{new Date(team.createdAt).toLocaleDateString()}</p>
+            <p className="text-muted-foreground">{formatDate(team.createdAt)}</p>
           </div>
           <div className="space-y-1 text-sm">
             <p className="font-medium">Last updated</p>
-            <p className="text-muted-foreground">{new Date(team.updatedAt).toLocaleDateString()}</p>
+            <p className="text-muted-foreground">{formatDate(team.updatedAt)}</p>
           </div>
 
           <Separator />

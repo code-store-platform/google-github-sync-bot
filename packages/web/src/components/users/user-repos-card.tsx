@@ -1,8 +1,8 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { useState, useMemo } from 'react';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -25,12 +25,19 @@ export function UserReposCard({ user }: { user: UserDetail }) {
   const {
     data: userRepos,
     isLoading,
+    isFetching,
     error,
   } = useQuery({
     queryKey: ['user-repos', user.email],
     queryFn: () => api.getUserRepos(user.email),
     enabled: !!user.githubUsername,
   });
+
+  const teamMutationsInFlight = useIsMutating({
+    mutationKey: ['user-team-mutation', user.email],
+  });
+  const teamAccessSyncing =
+    teamMutationsInFlight > 0 || (isFetching && !isLoading);
 
   const { data: allRepos } = useQuery({
     queryKey: ['repos'],
@@ -200,7 +207,15 @@ export function UserReposCard({ user }: { user: UserDetail }) {
 
         {/* Team Access Section */}
         <div className="space-y-4">
-          <h4 className="text-sm font-medium">Team Access</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-medium">Team Access</h4>
+            {teamAccessSyncing && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Syncing…
+              </span>
+            )}
+          </div>
 
           {isLoading ? (
             <div className="space-y-2">

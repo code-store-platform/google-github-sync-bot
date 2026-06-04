@@ -93,4 +93,4 @@ const CommandSeparator = React.forwardRef<
 ));
 CommandSeparator.displayName = CommandPrimitive.Separator.displayName;
 
-export { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator };
+export { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem,  };

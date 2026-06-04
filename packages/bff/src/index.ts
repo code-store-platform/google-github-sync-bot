@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { envVars } from './lib/config';
 import { corsMiddleware } from './middleware/cors';
 import { errorHandler } from './middleware/error-handler';
+import { activityRoutes } from './routes/activity';
 import { repoRoutes } from './routes/repos';
 import { syncRoutes } from './routes/sync';
 import { teamRoutes } from './routes/teams';
@@ -17,6 +18,7 @@ api.route('/api/users', userRoutes);
 api.route('/api/teams', teamRoutes);
 api.route('/api/repos', repoRoutes);
 api.route('/api/sync', syncRoutes);
+api.route('/api/activity', activityRoutes);
 
 Bun.serve({
   port: Number(envVars.API_PORT),

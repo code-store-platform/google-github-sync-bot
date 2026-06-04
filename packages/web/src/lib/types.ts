@@ -20,19 +20,27 @@ export type UserDetail = {
   suspended: boolean;
 };
 
-export type SyncHistoryEntry = {
-  id: number;
-  syncType: string;
-  startedAt: string;
-  completedAt: string | null;
-  invitedCount: number;
-  removedCount: number;
-  errorCount: number;
+// ── Activity ──────────────────────────────────────────────────────────────────
+
+export type ActivityType = 'sync' | 'action';
+
+export type ActivityEntry = {
+  id: string;
+  type: ActivityType;
+  timestamp: string;
+  trigger: string;
+  summary: string;
   details: unknown;
-  triggeredBy: string;
 };
 
-export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type ActivityResponse = {
+  items: ActivityEntry[];
+  page: number;
+  limit: number;
+  totalCount: number;
+};
+
+type SyncJobStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type SyncJob = {
   id: string;
@@ -114,7 +122,7 @@ export type RepoTeam = {
   htmlUrl: string;
 };
 
-export type CollaboratorRepo = {
+type CollaboratorRepo = {
   name: string;
   fullName: string;
   description: string | null;
@@ -124,7 +132,7 @@ export type CollaboratorRepo = {
   permission: RepoTeamPermission;
 };
 
-export type TeamRepoAccess = CollaboratorRepo & {
+type TeamRepoAccess = CollaboratorRepo & {
   teamSlug: string;
   teamName: string;
 };

@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
+import { formatDate } from '@/lib/utils';
 import type { RepoTeamPermission } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -209,13 +210,13 @@ function RepoInfoCard({
           <div className="space-y-1 text-sm">
             <p className="font-medium">Created</p>
             <p className="text-muted-foreground">
-              {new Date(repo.createdAt).toLocaleDateString()}
+              {formatDate(repo.createdAt)}
             </p>
           </div>
           <div className="space-y-1 text-sm">
             <p className="font-medium">Last updated</p>
             <p className="text-muted-foreground">
-              {new Date(repo.updatedAt).toLocaleDateString()}
+              {formatDate(repo.updatedAt)}
             </p>
           </div>
 

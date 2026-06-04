@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useMemo } from 'react';
 import { Search, ArrowUpDown, Star, GitFork } from 'lucide-react';
 import { api } from '@/lib/api-client';
+import { formatDate } from '@/lib/utils';
 import type { RepoListItem } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -196,7 +197,7 @@ function RepoRow({ repo, onClick }: { repo: RepoListItem; onClick: () => void })
       </td>
       <td className="p-3 hidden lg:table-cell">
         <span className="text-sm text-muted-foreground">
-          {new Date(repo.updatedAt).toLocaleDateString()}
+          {formatDate(repo.updatedAt)}
         </span>
       </td>
     </tr>

@@ -1,7 +1,7 @@
 import { Effect, Schedule } from 'effect';
 import postgres from 'postgres';
 import { SYNC_JOBS_CHANNEL } from '@google-github-sync/shared';
-import { JobProcessorError } from '../lib/errors';
+import { describeError, JobProcessorError } from '../lib/errors';
 import { envVars } from '../lib/config';
 import { SyncJobRepo } from './sync-job-repo';
 import { processGitHubSync } from './sync-engine';
@@ -46,7 +46,7 @@ export const startJobProcessor = Effect.gen(function* () {
 
   // Process any jobs that were pending before we started
   yield* processNextJob.pipe(
-    Effect.catchAll((e) => Effect.logError(`Error processing job: ${e}`)),
+    Effect.catchAll((e) => Effect.logError(`Error processing job: ${describeError(e)}`)),
   );
 
   // Set up LISTEN/NOTIFY - uses a dedicated connection
@@ -66,7 +66,8 @@ export const startJobProcessor = Effect.gen(function* () {
         console.log('[NOTIFY] sync_jobs_channel triggered');
       });
     },
-    catch: (e) => new JobProcessorError({ message: `Failed to set up LISTEN: ${e}` }),
+    catch: (e) =>
+      new JobProcessorError({ message: `Failed to set up LISTEN: ${describeError(e)}` }),
   });
 
   yield* Effect.log('Listening for sync_jobs_channel notifications');
@@ -74,7 +75,7 @@ export const startJobProcessor = Effect.gen(function* () {
   // Polling every 5 seconds (also handles NOTIFY events since the
   // listener callback just logs — the poll loop picks up the job)
   yield* processNextJob.pipe(
-    Effect.catchAll((e) => Effect.logError(`Error in polling: ${e}`)),
+    Effect.catchAll((e) => Effect.logError(`Error in polling: ${describeError(e)}`)),
     Effect.repeat(Schedule.spaced('5 seconds')),
     Effect.fork,
   );

@@ -13,7 +13,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PrivacyBadge } from '@/components/teams/privacy-badge';
 import { RoleBadge } from '@/components/teams/role-badge';
 import { TeamAutocomplete } from './team-autocomplete';
-import type { UserDetail, TeamMemberRole } from '@/lib/types';
+import type {
+  UserDetail,
+  TeamMemberRole,
+  UserTeamMembership,
+  UserReposResponse,
+} from '@/lib/types';
 
 export function UserTeamsCard({ user }: { user: UserDetail }) {
   const { toast } = useToast();
@@ -42,47 +47,101 @@ export function UserTeamsCard({ user }: { user: UserDetail }) {
     [userTeams],
   );
 
+  const userTeamsKey = ['user-teams', user.email] as const;
+  const userReposKey = ['user-repos', user.email] as const;
+  const teamMutationKey = ['user-team-mutation', user.email] as const;
+
   const addMutation = useMutation({
+    mutationKey: teamMutationKey,
     mutationFn: () =>
       api.addTeamMember(teamSlug.trim(), {
         username: user.githubUsername!,
         role,
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-teams', user.email] });
-      queryClient.invalidateQueries({ queryKey: ['teams'] });
+    onMutate: async () => {
+      const slug = teamSlug.trim();
+      await queryClient.cancelQueries({ queryKey: userTeamsKey });
+      const previous = queryClient.getQueryData<UserTeamMembership[]>(userTeamsKey);
+      const teamToAdd = (allTeams ?? []).find((t) => t.slug === slug);
+      if (teamToAdd) {
+        queryClient.setQueryData<UserTeamMembership[]>(userTeamsKey, (current) => [
+          ...(current ?? []),
+          { ...teamToAdd, role },
+        ]);
+      }
+      return { previous, slug };
+    },
+    onSuccess: (_, _vars, context) => {
       toast({
         title: 'Added to team',
-        description: `${user.githubUsername} has been added to ${teamSlug}.`,
+        description: `${user.githubUsername} has been added to ${context.slug}.`,
       });
       setTeamSlug('');
       setRole('member');
     },
-    onError: (err) => {
+    onError: (err, _vars, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(userTeamsKey, context.previous);
+      }
       toast({
         title: 'Failed to add to team',
         description: err.message,
         variant: 'destructive',
       });
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: userTeamsKey });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['user-repos', user.email] });
+    },
   });
 
   const removeMutation = useMutation({
+    mutationKey: teamMutationKey,
     mutationFn: (slug: string) => api.removeTeamMember(slug, user.githubUsername!),
+    onMutate: async (slug: string) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: userTeamsKey }),
+        queryClient.cancelQueries({ queryKey: userReposKey }),
+      ]);
+      const previousTeams = queryClient.getQueryData<UserTeamMembership[]>(userTeamsKey);
+      const previousRepos = queryClient.getQueryData<UserReposResponse>(userReposKey);
+      queryClient.setQueryData<UserTeamMembership[]>(userTeamsKey, (current) =>
+        (current ?? []).filter((t) => t.slug !== slug),
+      );
+      queryClient.setQueryData<UserReposResponse>(userReposKey, (current) =>
+        current
+          ? { ...current, teams: current.teams.filter((r) => r.teamSlug !== slug) }
+          : current,
+      );
+      return { previousTeams, previousRepos };
+    },
     onSuccess: (_, slug) => {
-      queryClient.invalidateQueries({ queryKey: ['user-teams', user.email] });
-      queryClient.invalidateQueries({ queryKey: ['teams'] });
       toast({
         title: 'Removed from team',
         description: `${user.githubUsername} has been removed from ${slug}.`,
       });
     },
-    onError: (err) => {
+    onError: (err, _slug, context) => {
+      if (context?.previousTeams !== undefined) {
+        queryClient.setQueryData(userTeamsKey, context.previousTeams);
+      }
+      if (context?.previousRepos !== undefined) {
+        queryClient.setQueryData(userReposKey, context.previousRepos);
+      }
       toast({
         title: 'Failed to remove from team',
         description: err.message,
         variant: 'destructive',
       });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: userTeamsKey });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      // GitHub's repo-access read is eventually-consistent after a team
+      // removal — refetching now would overwrite the optimistic filter with
+      // stale data. Mark stale only; refetch happens on next mount/focus.
+      queryClient.invalidateQueries({ queryKey: userReposKey, refetchType: 'none' });
     },
   });
 

@@ -1,9 +1,9 @@
-import { Context, Effect, Layer } from 'effect';
-import { and, eq, sql } from 'drizzle-orm';
-import { syncJobs, syncHistory } from '@google-github-sync/shared/db/schema';
 import { createDb, type Database } from '@google-github-sync/shared/db';
-import { SyncJobError } from '../lib/errors';
+import { syncHistory, syncJobs } from '@google-github-sync/shared/db/schema';
+import { and, eq, sql } from 'drizzle-orm';
+import { Context, Effect, Layer } from 'effect';
 import { envVars } from '../lib/config';
+import { describeError, SyncJobError } from '../lib/errors';
 
 export type SyncJob = typeof syncJobs.$inferSelect;
 
@@ -22,7 +22,10 @@ export class SyncJobRepo extends Context.Tag('SyncJobRepo')<
   {
     readonly claimNextJob: () => Effect.Effect<SyncJob | null, SyncJobError>;
     readonly markRunning: (jobId: string) => Effect.Effect<void, SyncJobError>;
-    readonly completeJob: (jobId: string, result: SyncCompletionResult) => Effect.Effect<void, SyncJobError>;
+    readonly completeJob: (
+      jobId: string,
+      result: SyncCompletionResult,
+    ) => Effect.Effect<void, SyncJobError>;
     readonly failJob: (jobId: string, error: string) => Effect.Effect<void, SyncJobError>;
     readonly createJob: (type: string, triggeredBy: string) => Effect.Effect<SyncJob, SyncJobError>;
     readonly hasPendingOrRunning: (type: string) => Effect.Effect<boolean, SyncJobError>;
@@ -44,7 +47,7 @@ export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
             .limit(1);
           return job ?? null;
         },
-        catch: (e) => new SyncJobError({ message: `Failed to claim next job: ${e}` }),
+        catch: (e) => new SyncJobError({ message: `Failed to claim next job: ${describeError(e)}` }),
       }),
 
     markRunning: (jobId: string) =>
@@ -55,7 +58,7 @@ export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
             .set({ status: 'running', startedAt: new Date() })
             .where(eq(syncJobs.id, jobId));
         },
-        catch: (e) => new SyncJobError({ message: `Failed to mark job running: ${e}` }),
+        catch: (e) => new SyncJobError({ message: `Failed to mark job running: ${describeError(e)}` }),
       }),
 
     completeJob: (jobId, result) =>
@@ -81,17 +84,13 @@ export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
             })
             .where(eq(syncJobs.id, jobId));
         },
-        catch: (e) => new SyncJobError({ message: `Failed to complete job: ${e}` }),
+        catch: (e) => new SyncJobError({ message: `Failed to complete job: ${describeError(e)}` }),
       }),
 
     failJob: (jobId: string, error: string) =>
       Effect.tryPromise({
         try: async () => {
-          const [job] = await db
-            .select()
-            .from(syncJobs)
-            .where(eq(syncJobs.id, jobId))
-            .limit(1);
+          const [job] = await db.select().from(syncJobs).where(eq(syncJobs.id, jobId)).limit(1);
 
           const now = new Date();
 
@@ -111,19 +110,16 @@ export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
             .set({ status: 'failed', completedAt: now, result: { error } })
             .where(eq(syncJobs.id, jobId));
         },
-        catch: (e) => new SyncJobError({ message: `Failed to fail job: ${e}` }),
+        catch: (e) => new SyncJobError({ message: `Failed to fail job: ${describeError(e)}` }),
       }),
 
     createJob: (type: string, triggeredBy: string) =>
       Effect.tryPromise({
         try: async () => {
-          const [job] = await db
-            .insert(syncJobs)
-            .values({ type, triggeredBy })
-            .returning();
+          const [job] = await db.insert(syncJobs).values({ type, triggeredBy }).returning();
           return job;
         },
-        catch: (e) => new SyncJobError({ message: `Failed to create job: ${e}` }),
+        catch: (e) => new SyncJobError({ message: `Failed to create job: ${describeError(e)}` }),
       }),
 
     hasPendingOrRunning: (type: string) =>
@@ -144,16 +140,11 @@ export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
           const [row] = await db
             .select()
             .from(syncJobs)
-            .where(
-              and(
-                eq(syncJobs.type, type),
-                sql`${syncJobs.status} IN ('pending', 'running')`,
-              ),
-            )
+            .where(and(eq(syncJobs.type, type), sql`${syncJobs.status} IN ('pending', 'running')`))
             .limit(1);
           return !!row;
         },
-        catch: (e) => new SyncJobError({ message: `Failed to check pending jobs: ${e}` }),
+        catch: (e) => new SyncJobError({ message: `Failed to check pending jobs: ${describeError(e)}` }),
       }),
   };
 });

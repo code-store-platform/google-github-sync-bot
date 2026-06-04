@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from 'effect';
 import { Octokit } from 'octokit';
 import { normalizeGitHubUsername } from '@google-github-sync/shared/utils';
-import { GitHubError } from '../lib/errors';
+import { describeError, GitHubError } from '../lib/errors';
 import { envVars } from '../lib/config';
 
 export class GitHubService extends Context.Tag('GitHubService')<
@@ -29,7 +29,7 @@ export const GitHubServiceLive = Layer.sync(GitHubService, () => {
           });
           return new Set(members.map((m) => normalizeGitHubUsername(m.login)));
         },
-        catch: (e) => new GitHubError({ message: `Failed to fetch members: ${e}` }),
+        catch: (e) => new GitHubError({ message: `Failed to fetch members: ${describeError(e)}` }),
       }),
 
     getInvitedUsernames: () =>
@@ -45,7 +45,7 @@ export const GitHubServiceLive = Layer.sync(GitHubService, () => {
               .map((i) => normalizeGitHubUsername(i.login || '')),
           );
         },
-        catch: (e) => new GitHubError({ message: `Failed to fetch invites: ${e}` }),
+        catch: (e) => new GitHubError({ message: `Failed to fetch invites: ${describeError(e)}` }),
       }),
 
     inviteUser: (username: string) =>
@@ -57,7 +57,7 @@ export const GitHubServiceLive = Layer.sync(GitHubService, () => {
             invitee_id: user.data.id,
           });
         },
-        catch: (e) => new GitHubError({ message: `Failed to invite ${username}: ${e}` }),
+        catch: (e) => new GitHubError({ message: `Failed to invite ${username}: ${describeError(e)}` }),
       }),
 
     removeMember: (username: string) =>
@@ -65,7 +65,7 @@ export const GitHubServiceLive = Layer.sync(GitHubService, () => {
         try: async () => {
           await octokit.rest.orgs.removeMember({ org: orgName, username });
         },
-        catch: (e) => new GitHubError({ message: `Failed to remove ${username}: ${e}` }),
+        catch: (e) => new GitHubError({ message: `Failed to remove ${username}: ${describeError(e)}` }),
       }),
 
     getUserId: (username: string) =>
@@ -74,7 +74,7 @@ export const GitHubServiceLive = Layer.sync(GitHubService, () => {
           const user = await octokit.rest.users.getByUsername({ username });
           return user.data.id;
         },
-        catch: (e) => new GitHubError({ message: `Failed to get user ID for ${username}: ${e}` }),
+        catch: (e) => new GitHubError({ message: `Failed to get user ID for ${username}: ${describeError(e)}` }),
       }),
   };
 });

@@ -1,9 +1,10 @@
 import type {
+  ActivityResponse,
+  ActivityType,
   UserDetail,
   UserListItem,
   UserTeamMembership,
   UserReposResponse,
-  SyncHistoryEntry,
   SyncJob,
   TeamListItem,
   TeamDetail,
@@ -56,7 +57,16 @@ export const api = {
 
   getSyncJobStatus: (jobId: string) => fetchApi<SyncJob>(`/api/sync/jobs/${jobId}`),
 
-  getSyncHistory: (limit = 20) => fetchApi<SyncHistoryEntry[]>(`/api/sync/history?limit=${limit}`),
+  // ── Activity ───────────────────────────────────────────────────────────────
+
+  getActivity: (params?: { page?: number; limit?: number; type?: ActivityType }) => {
+    const search = new URLSearchParams();
+    if (params?.page) search.set('page', String(params.page));
+    if (params?.limit) search.set('limit', String(params.limit));
+    if (params?.type) search.set('type', params.type);
+    const qs = search.toString();
+    return fetchApi<ActivityResponse>(`/api/activity${qs ? `?${qs}` : ''}`);
+  },
 
   // ── Teams ──────────────────────────────────────────────────────────────────
 

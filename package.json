@@ -13,14 +13,17 @@
     "dev:web": "bun run --cwd packages/web dev",
     "dev": "bun run dev:bff & bun run dev:worker & bun run dev:web",
     "db:push": "bun run --cwd packages/shared db:push",
-    "db:studio": "bun run --cwd packages/shared db:studio"
+    "db:studio": "bun run --cwd packages/shared db:studio",
+    "knip": "knip"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.11",
-    "@effect/language-service": "^0.64.1",
-    "@types/bun": "latest"
+    "@biomejs/biome": "^2.4.16",
+    "@effect/language-service": "^0.86.2",
+    "@types/bun": "latest",
+    "@types/node": "^25.9.1",
+    "knip": "^6.15.0"
   },
   "peerDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

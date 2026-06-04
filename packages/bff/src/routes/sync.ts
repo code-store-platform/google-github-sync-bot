@@ -1,7 +1,7 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { syncHistory, syncJobs } from '@google-github-sync/shared/db/schema';
+import { syncJobs } from '@google-github-sync/shared/db/schema';
 import { SYNC_JOBS_CHANNEL } from '@google-github-sync/shared';
 import { db } from '../db';
 
@@ -56,15 +56,3 @@ syncRoutes.get('/jobs/:id', async (c) => {
   return c.json(job);
 });
 
-// GET /api/sync/history - Get sync history
-syncRoutes.get('/history', async (c) => {
-  const limit = Number(c.req.query('limit') || '20');
-
-  const history = await db
-    .select()
-    .from(syncHistory)
-    .orderBy(desc(syncHistory.startedAt))
-    .limit(limit);
-
-  return c.json(history);
-});

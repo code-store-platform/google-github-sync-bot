@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, GitBranch, FolderGit2, Menu, X } from 'lucide-react';
+import { Users, GitBranch, FolderGit2, Activity, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ const navItems = [
   { href: '/users', label: 'Users', icon: Users, enabled: true },
   { href: '/teams', label: 'Teams', icon: GitBranch, enabled: true },
   { href: '/repos', label: 'Repos', icon: FolderGit2, enabled: true },
+  { href: '/activity', label: 'Activity', icon: Activity, enabled: true },
 ];
 
 export function Sidebar() {

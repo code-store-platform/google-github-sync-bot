@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from 'effect';
 import { google } from 'googleapis';
-import { GoogleWorkspaceError } from '../lib/errors';
+import { describeError, GoogleWorkspaceError } from '../lib/errors';
 import { envVars } from '../lib/config';
 
 export type GoogleUser = {
@@ -49,6 +49,7 @@ export const GoogleWorkspaceServiceLive = Layer.succeed(GoogleWorkspaceService, 
 
         return (response.data.users || []) as GoogleUser[];
       },
-      catch: (e) => new GoogleWorkspaceError({ message: `Failed to fetch users: ${e}` }),
+      catch: (e) =>
+        new GoogleWorkspaceError({ message: `Failed to fetch users: ${describeError(e)}` }),
     }),
 });

@@ -20,9 +20,9 @@ const membership = new GitHubMembershipService();
 const teamsService = new GitHubTeamsService();
 const reposService = new GitHubReposService();
 
-export type UserStatus = 'member' | 'pending_invite' | 'not_linked' | 'linked_not_in_org';
+type UserStatus = 'member' | 'pending_invite' | 'not_linked' | 'linked_not_in_org';
 
-export type UserListItem = {
+type UserListItem = {
   email: string;
   name: string | null;
   githubUsername: string | null;
