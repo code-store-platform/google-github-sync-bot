@@ -6,12 +6,12 @@
     "dev": "bun run --env-file ../../.env --watch src/index.ts"
   },
   "dependencies": {
+    "@effect/platform-bun": "^4.0.5",
     "@google-github-sync/shared": "workspace:*",
-    "drizzle-orm": "^0.45.2",
-    "googleapis": "^170.1.0",
-    "hono": "^4.12.23",
+    "drizzle-orm": "^0.45.4",
+    "effect": "^4.0.5",
+    "googleapis": "^186.0.0",
     "octokit": "^5.0.5",
-    "postgres": "^3.4.9",
-    "zod": "^4.4.3"
+    "postgres": "^3.4.9"
   }
 }

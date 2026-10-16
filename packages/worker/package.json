@@ -8,13 +8,13 @@
   },
   "dependencies": {
     "@google-github-sync/shared": "workspace:*",
-    "@slack/web-api": "^7.16.0",
+    "@slack/web-api": "^8.2.0",
     "cron": "^4.4.0",
-    "drizzle-orm": "^0.45.2",
-    "effect": "^3.21.2",
-    "googleapis": "^170.1.0",
+    "drizzle-orm": "^0.45.4",
+    "effect": "^4.0.5",
+    "googleapis": "^186.0.0",
     "octokit": "^5.0.5",
     "postgres": "^3.4.9",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   }
 }

@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 
 const visibilityConfig: Record<RepoVisibility, { label: string; variant: 'info' | 'warning' }> = {
   public: { label: 'Public', variant: 'info' },
+  internal: { label: 'Internal', variant: 'warning' },
   private: { label: 'Private', variant: 'warning' },
 };
 

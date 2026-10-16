@@ -1,6 +1,7 @@
 import { createDb, type Database } from '@google-github-sync/shared/db';
 import { syncHistory, syncJobs } from '@google-github-sync/shared/db/schema';
-import { and, eq, sql } from 'drizzle-orm';
+import { findActiveJob } from '@google-github-sync/shared/db/sync-jobs';
+import { eq } from 'drizzle-orm';
 import { Context, Effect, Layer } from 'effect';
 import { envVars } from '../lib/config';
 import { describeError, SyncJobError } from '../lib/errors';
@@ -17,11 +18,10 @@ export type SyncCompletionResult = {
   triggeredBy: string;
 };
 
-export class SyncJobRepo extends Context.Tag('SyncJobRepo')<
+export class SyncJobRepo extends Context.Service<
   SyncJobRepo,
   {
-    readonly claimNextJob: () => Effect.Effect<SyncJob | null, SyncJobError>;
-    readonly markRunning: (jobId: string) => Effect.Effect<void, SyncJobError>;
+    readonly claimNextJob: Effect.Effect<SyncJob | null, SyncJobError>;
     readonly completeJob: (
       jobId: string,
       result: SyncCompletionResult,
@@ -30,38 +30,31 @@ export class SyncJobRepo extends Context.Tag('SyncJobRepo')<
     readonly createJob: (type: string, triggeredBy: string) => Effect.Effect<SyncJob, SyncJobError>;
     readonly hasPendingOrRunning: (type: string) => Effect.Effect<boolean, SyncJobError>;
   }
->() {}
+>()('SyncJobRepo') {}
 
-export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
-  const db: Database = createDb(envVars.DATABASE_URL);
-
+export function makeSyncJobRepo(db: Database) {
   return {
-    claimNextJob: () =>
-      Effect.tryPromise({
-        try: async () => {
-          const [job] = await db
-            .select()
-            .from(syncJobs)
-            .where(eq(syncJobs.status, 'pending'))
-            .orderBy(syncJobs.createdAt)
-            .limit(1);
-          return job ?? null;
-        },
-        catch: (e) => new SyncJobError({ message: `Failed to claim next job: ${describeError(e)}` }),
-      }),
+    claimNextJob: Effect.tryPromise({
+      try: async () => {
+        // Lock and transition in one statement so competing workers cannot claim the same row.
+        const nextJob = db
+          .select({ id: syncJobs.id })
+          .from(syncJobs)
+          .where(eq(syncJobs.status, 'pending'))
+          .orderBy(syncJobs.createdAt, syncJobs.id)
+          .limit(1)
+          .for('update', { skipLocked: true });
+        const [job] = await db
+          .update(syncJobs)
+          .set({ status: 'running', startedAt: new Date() })
+          .where(eq(syncJobs.id, nextJob))
+          .returning();
+        return job ?? null;
+      },
+      catch: (e) => new SyncJobError({ message: `Failed to claim next job: ${describeError(e)}` }),
+    }),
 
-    markRunning: (jobId: string) =>
-      Effect.tryPromise({
-        try: async () => {
-          await db
-            .update(syncJobs)
-            .set({ status: 'running', startedAt: new Date() })
-            .where(eq(syncJobs.id, jobId));
-        },
-        catch: (e) => new SyncJobError({ message: `Failed to mark job running: ${describeError(e)}` }),
-      }),
-
-    completeJob: (jobId, result) =>
+    completeJob: (jobId: string, result: SyncCompletionResult) =>
       Effect.tryPromise({
         try: async () => {
           await db.insert(syncHistory).values({
@@ -124,27 +117,13 @@ export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () => {
 
     hasPendingOrRunning: (type: string) =>
       Effect.tryPromise({
-        try: async () => {
-          // Fail any jobs stuck in 'running' for more than 10 minutes
-          await db
-            .update(syncJobs)
-            .set({ status: 'failed', completedAt: new Date(), result: { error: 'Timed out' } })
-            .where(
-              and(
-                eq(syncJobs.type, type),
-                eq(syncJobs.status, 'running'),
-                sql`${syncJobs.startedAt} < NOW() - INTERVAL '10 minutes'`,
-              ),
-            );
-
-          const [row] = await db
-            .select()
-            .from(syncJobs)
-            .where(and(eq(syncJobs.type, type), sql`${syncJobs.status} IN ('pending', 'running')`))
-            .limit(1);
-          return !!row;
-        },
-        catch: (e) => new SyncJobError({ message: `Failed to check pending jobs: ${describeError(e)}` }),
+        try: async () => !!(await findActiveJob(db, type)),
+        catch: (e) =>
+          new SyncJobError({ message: `Failed to check pending jobs: ${describeError(e)}` }),
       }),
   };
-});
+}
+
+export const SyncJobRepoLive = Layer.sync(SyncJobRepo, () =>
+  makeSyncJobRepo(createDb(envVars.DATABASE_URL)),
+);

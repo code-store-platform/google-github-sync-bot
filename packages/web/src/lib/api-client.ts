@@ -1,156 +1,116 @@
+import { DashboardApi } from '@google-github-sync/shared/api';
+import { Cause, Effect } from 'effect';
+import { FetchHttpClient, HttpClient } from 'effect/http';
+import { HttpApiClient } from 'effect/http-api';
 import type {
-  ActivityResponse,
   ActivityType,
-  UserDetail,
-  UserListItem,
-  UserTeamMembership,
-  UserReposResponse,
-  SyncJob,
-  TeamListItem,
-  TeamDetail,
-  TeamMember,
-  RepoListItem,
-  RepoDetail,
-  RepoTeam,
+  RepoTeamPermission,
+  RepoWriteVisibility,
+  TeamMemberRole,
+  TeamPrivacy,
 } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// The authenticated Next.js proxy keeps BFF credentials on the server.
+const API_URL = globalThis.location?.origin || 'http://localhost:3001';
 
-async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  });
+const makeClient = HttpApiClient.make(DashboardApi, { baseUrl: API_URL }).pipe(
+  Effect.provide(FetchHttpClient.layer),
+);
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `API error: ${res.status}`);
+type Client = Effect.Success<typeof makeClient>;
+
+let client: Promise<Client> | undefined;
+
+// Errors become plain `Error`s so TanStack Query / error boundaries can show `.message`
+function toError(e: unknown): Error {
+  if (typeof e === 'object' && e !== null && 'message' in e && typeof e.message === 'string') {
+    return new Error(e.message || ('_tag' in e ? String(e._tag) : 'API error'));
   }
+  return new Error(String(e));
+}
 
-  return res.json();
+async function call<A, E>(request: (client: Client) => Effect.Effect<A, E>): Promise<A> {
+  client ??= Effect.runPromise(makeClient);
+  const exit = await Effect.runPromiseExit(
+    request(await client).pipe(Effect.provideService(HttpClient.TracerPropagationEnabled, false)),
+  );
+  if (exit._tag === 'Success') return exit.value;
+  throw toError(Cause.squash(exit.cause));
 }
 
 export const api = {
-  getUsers: () => fetchApi<UserListItem[]>('/api/users'),
+  getUsers: () => call((c) => c.users.list()),
 
-  getUser: (email: string) => fetchApi<UserDetail>(`/api/users/${encodeURIComponent(email)}`),
+  getUser: (email: string) => call((c) => c.users.get({ params: { email } })),
 
   updateGitHubUsername: (email: string, githubUsername: string) =>
-    fetchApi<{ success: boolean }>(`/api/users/${encodeURIComponent(email)}/github-username`, {
-      method: 'PATCH',
-      body: JSON.stringify({ githubUsername }),
-    }),
+    call((c) => c.users.updateGitHubUsername({ params: { email }, payload: { githubUsername } })),
 
-  getUserTeams: (email: string) =>
-    fetchApi<UserTeamMembership[]>(`/api/users/${encodeURIComponent(email)}/teams`),
+  getUserTeams: (email: string) => call((c) => c.users.teams({ params: { email } })),
 
-  getUserRepos: (email: string) =>
-    fetchApi<UserReposResponse>(`/api/users/${encodeURIComponent(email)}/repos`),
+  getUserRepos: (email: string) => call((c) => c.users.repos({ params: { email } })),
 
-  triggerSync: () =>
-    fetchApi<{ id: string; status: string }>('/api/sync/github', {
-      method: 'POST',
-    }),
+  triggerSync: () => call((c) => c.sync.triggerGitHub()),
 
-  getSyncJobStatus: (jobId: string) => fetchApi<SyncJob>(`/api/sync/jobs/${jobId}`),
+  getSyncJobStatus: (jobId: string) => call((c) => c.sync.job({ params: { id: jobId } })),
 
   // ── Activity ───────────────────────────────────────────────────────────────
 
-  getActivity: (params?: { page?: number; limit?: number; type?: ActivityType }) => {
-    const search = new URLSearchParams();
-    if (params?.page) search.set('page', String(params.page));
-    if (params?.limit) search.set('limit', String(params.limit));
-    if (params?.type) search.set('type', params.type);
-    const qs = search.toString();
-    return fetchApi<ActivityResponse>(`/api/activity${qs ? `?${qs}` : ''}`);
-  },
+  getActivity: (params?: { page?: number; limit?: number; type?: ActivityType }) =>
+    call((c) => c.activity.list({ query: params ?? {} })),
 
   // ── Teams ──────────────────────────────────────────────────────────────────
 
-  getTeams: () => fetchApi<TeamListItem[]>('/api/teams'),
+  getTeams: () => call((c) => c.teams.list()),
 
-  getTeam: (slug: string) => fetchApi<TeamDetail>(`/api/teams/${encodeURIComponent(slug)}`),
+  getTeam: (slug: string) => call((c) => c.teams.get({ params: { slug } })),
 
-  createTeam: (params: { name: string; description?: string; privacy?: string }) =>
-    fetchApi<TeamDetail>('/api/teams', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+  createTeam: (params: { name: string; description?: string; privacy?: TeamPrivacy }) =>
+    call((c) => c.teams.create({ payload: params })),
 
-  updateTeam: (slug: string, params: { name?: string; description?: string; privacy?: string }) =>
-    fetchApi<TeamDetail>(`/api/teams/${encodeURIComponent(slug)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(params),
-    }),
+  updateTeam: (
+    slug: string,
+    params: { name?: string; description?: string; privacy?: TeamPrivacy },
+  ) => call((c) => c.teams.update({ params: { slug }, payload: params })),
 
-  deleteTeam: (slug: string) =>
-    fetchApi<{ success: boolean }>(`/api/teams/${encodeURIComponent(slug)}`, {
-      method: 'DELETE',
-    }),
+  deleteTeam: (slug: string) => call((c) => c.teams.delete({ params: { slug } })),
 
-  getTeamMembers: (slug: string) =>
-    fetchApi<TeamMember[]>(`/api/teams/${encodeURIComponent(slug)}/members`),
+  getTeamMembers: (slug: string) => call((c) => c.teams.members({ params: { slug } })),
 
-  addTeamMember: (slug: string, params: { username: string; role?: string }) =>
-    fetchApi<{ success: boolean }>(`/api/teams/${encodeURIComponent(slug)}/members`, {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+  addTeamMember: (slug: string, params: { username: string; role?: TeamMemberRole }) =>
+    call((c) => c.teams.addMember({ params: { slug }, payload: params })),
 
   removeTeamMember: (slug: string, username: string) =>
-    fetchApi<{ success: boolean }>(
-      `/api/teams/${encodeURIComponent(slug)}/members/${encodeURIComponent(username)}`,
-      { method: 'DELETE' },
-    ),
+    call((c) => c.teams.removeMember({ params: { slug, username } })),
 
   // ── Repos ──────────────────────────────────────────────────────────────────
 
-  getRepos: () => fetchApi<RepoListItem[]>('/api/repos'),
+  getRepos: () => call((c) => c.repos.list()),
 
-  getRepo: (name: string) => fetchApi<RepoDetail>(`/api/repos/${encodeURIComponent(name)}`),
+  getRepo: (name: string) => call((c) => c.repos.get({ params: { name } })),
 
   updateRepo: (
     name: string,
     params: {
       description?: string;
       homepage?: string;
-      visibility?: string;
+      visibility?: RepoWriteVisibility;
       archived?: boolean;
       topics?: string[];
     },
-  ) =>
-    fetchApi<RepoDetail>(`/api/repos/${encodeURIComponent(name)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(params),
-    }),
+  ) => call((c) => c.repos.update({ params: { name }, payload: params })),
 
-  getRepoTeams: (name: string) =>
-    fetchApi<RepoTeam[]>(`/api/repos/${encodeURIComponent(name)}/teams`),
+  getRepoTeams: (name: string) => call((c) => c.repos.teams({ params: { name } })),
 
-  addRepoTeamAccess: (name: string, teamSlug: string, permission: string) =>
-    fetchApi<{ success: boolean }>(
-      `/api/repos/${encodeURIComponent(name)}/teams/${encodeURIComponent(teamSlug)}`,
-      { method: 'PUT', body: JSON.stringify({ permission }) },
-    ),
+  addRepoTeamAccess: (name: string, teamSlug: string, permission: RepoTeamPermission) =>
+    call((c) => c.repos.addTeam({ params: { name, teamSlug }, payload: { permission } })),
 
   removeRepoTeamAccess: (name: string, teamSlug: string) =>
-    fetchApi<{ success: boolean }>(
-      `/api/repos/${encodeURIComponent(name)}/teams/${encodeURIComponent(teamSlug)}`,
-      { method: 'DELETE' },
-    ),
+    call((c) => c.repos.removeTeam({ params: { name, teamSlug } })),
 
-  addRepoCollaborator: (name: string, username: string, permission: string) =>
-    fetchApi<{ success: boolean }>(
-      `/api/repos/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`,
-      { method: 'PUT', body: JSON.stringify({ permission }) },
-    ),
+  addRepoCollaborator: (name: string, username: string, permission: RepoTeamPermission) =>
+    call((c) => c.repos.addCollaborator({ params: { name, username }, payload: { permission } })),
 
   removeRepoCollaborator: (name: string, username: string) =>
-    fetchApi<{ success: boolean }>(
-      `/api/repos/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`,
-      { method: 'DELETE' },
-    ),
+    call((c) => c.repos.removeCollaborator({ params: { name, username } })),
 };

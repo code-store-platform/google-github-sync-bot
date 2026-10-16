@@ -12,7 +12,9 @@ const permissionConfig: Record<
   pull: { label: 'Pull', variant: 'secondary' },
 };
 
-export function PermissionBadge({ permission }: { permission: RepoTeamPermission }) {
-  const config = permissionConfig[permission];
+export function PermissionBadge({ permission }: { permission: string }) {
+  const config = Object.hasOwn(permissionConfig, permission)
+    ? permissionConfig[permission as RepoTeamPermission]
+    : { label: permission, variant: 'secondary' as const };
   return <Badge variant={config.variant}>{config.label}</Badge>;
 }

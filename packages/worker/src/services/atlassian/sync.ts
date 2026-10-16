@@ -9,7 +9,12 @@ export type AtlassianSyncResult = {
 };
 
 export type AtlassianInactivityResult = {
-  suspended?: { email: string; accountId: string; lastActiveDate?: string; inactiveDays?: number }[];
+  suspended?: {
+    email: string;
+    accountId: string;
+    lastActiveDate?: string;
+    inactiveDays?: number;
+  }[];
   deleted?: { email: string; accountId: string; lastActiveDate?: string; inactiveDays?: number }[];
   errors: string[];
 };
@@ -93,9 +98,7 @@ export class WorkspaceAtlassianSync {
     return result;
   }
 
-  async check3MonthInactivity(
-    workspaceUsers: GoogleUser[],
-  ): Promise<AtlassianInactivityResult> {
+  async check3MonthInactivity(workspaceUsers: GoogleUser[]): Promise<AtlassianInactivityResult> {
     return this.checkInactivity(
       workspaceUsers,
       WorkspaceAtlassianSync.INACTIVITY_SUSPENSION_DAYS,
@@ -104,9 +107,7 @@ export class WorkspaceAtlassianSync {
     );
   }
 
-  async check6MonthInactivity(
-    workspaceUsers: GoogleUser[],
-  ): Promise<AtlassianInactivityResult> {
+  async check6MonthInactivity(workspaceUsers: GoogleUser[]): Promise<AtlassianInactivityResult> {
     return this.checkInactivity(
       workspaceUsers,
       WorkspaceAtlassianSync.INACTIVITY_DELETION_DAYS,
@@ -163,9 +164,7 @@ export class WorkspaceAtlassianSync {
         if (dates.length === 0) continue;
 
         const mostRecent = new Date(Math.max(...dates.map((d) => d.getTime())));
-        const daysSince = Math.floor(
-          (Date.now() - mostRecent.getTime()) / (1000 * 60 * 60 * 24),
-        );
+        const daysSince = Math.floor((Date.now() - mostRecent.getTime()) / (1000 * 60 * 60 * 24));
 
         if (daysSince > thresholdDays) {
           const entry = {

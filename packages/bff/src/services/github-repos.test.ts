@@ -1,4 +1,6 @@
 import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { Schema } from 'effect';
+import { RepoListItem, UserRepos, RepoPermission } from '@google-github-sync/shared/api';
 
 mock.module('../lib/config', () => ({
   envVars: {
@@ -43,6 +45,14 @@ mock.module('octokit', () => ({
 
 const { GitHubReposService } = await import('./github-repos');
 
+// Octokit's PaginateInterface has extra members (iterator) a plain mock doesn't provide
+function mockPaginate(
+  service: InstanceType<typeof GitHubReposService>,
+  impl: (fn: unknown, params: Record<string, unknown>) => Promise<unknown[]>,
+) {
+  (service['octokit'] as { paginate: unknown }).paginate = mock(impl);
+}
+
 function makeRepoData(name: string, isPrivate = false) {
   return {
     id: Math.random(),
@@ -76,7 +86,7 @@ describe('GitHubReposService.listDirectCollaboratorRepos', () => {
     // First paginate call is for listRepos (listForOrg)
     // Second+ calls are for listCollaborators per repo
     let paginateCallCount = 0;
-    service['octokit'].paginate = mock(async (fn: unknown, params: Record<string, unknown>) => {
+    mockPaginate(service, async (fn: unknown, params: Record<string, unknown>) => {
       paginateCallCount++;
       if (paginateCallCount === 1) {
         // listRepos -> listForOrg
@@ -108,7 +118,7 @@ describe('GitHubReposService.listDirectCollaboratorRepos', () => {
   test('returns empty array when user has no direct access', async () => {
     const repos = [makeRepoData('repo-a')];
     let paginateCallCount = 0;
-    service['octokit'].paginate = mock(async () => {
+    mockPaginate(service, async () => {
       paginateCallCount++;
       if (paginateCallCount === 1) return repos;
       return [];
@@ -119,7 +129,7 @@ describe('GitHubReposService.listDirectCollaboratorRepos', () => {
   });
 
   test('returns empty array when org has no repos', async () => {
-    service['octokit'].paginate = mock(async () => []);
+    mockPaginate(service, async () => []);
 
     const result = await service.listDirectCollaboratorRepos('charlie');
     expect(result).toHaveLength(0);
@@ -134,40 +144,38 @@ describe('GitHubReposService.listReposViaTeams', () => {
   });
 
   test('returns repos from multiple teams', async () => {
-    service['octokit'].paginate = mock(
-      async (_fn: unknown, params: Record<string, unknown>) => {
-        const teamSlug = params.team_slug as string;
-        if (teamSlug === 'frontend') {
-          return [
-            {
-              name: 'web-app',
-              full_name: 'test-org/web-app',
-              description: 'The web app',
-              visibility: 'private',
-              private: true,
-              html_url: 'https://github.com/test-org/web-app',
-              archived: false,
-              role_name: 'push',
-            },
-          ];
-        }
-        if (teamSlug === 'backend') {
-          return [
-            {
-              name: 'api-server',
-              full_name: 'test-org/api-server',
-              description: null,
-              visibility: 'public',
-              private: false,
-              html_url: 'https://github.com/test-org/api-server',
-              archived: false,
-              role_name: 'admin',
-            },
-          ];
-        }
-        return [];
-      },
-    );
+    mockPaginate(service, async (_fn: unknown, params: Record<string, unknown>) => {
+      const teamSlug = params.team_slug as string;
+      if (teamSlug === 'frontend') {
+        return [
+          {
+            name: 'web-app',
+            full_name: 'test-org/web-app',
+            description: 'The web app',
+            visibility: 'private',
+            private: true,
+            html_url: 'https://github.com/test-org/web-app',
+            archived: false,
+            role_name: 'push',
+          },
+        ];
+      }
+      if (teamSlug === 'backend') {
+        return [
+          {
+            name: 'api-server',
+            full_name: 'test-org/api-server',
+            description: null,
+            visibility: 'public',
+            private: false,
+            html_url: 'https://github.com/test-org/api-server',
+            archived: false,
+            role_name: 'admin',
+          },
+        ];
+      }
+      return [];
+    });
 
     const result = await service.listReposViaTeams([
       { slug: 'frontend', name: 'Frontend' },
@@ -181,7 +189,7 @@ describe('GitHubReposService.listReposViaTeams', () => {
   });
 
   test('returns empty array when teams have no repos', async () => {
-    service['octokit'].paginate = mock(async () => []);
+    mockPaginate(service, async () => []);
 
     const result = await service.listReposViaTeams([{ slug: 'empty-team', name: 'Empty' }]);
     expect(result).toHaveLength(0);
@@ -234,4 +242,20 @@ describe('GitHubReposService.removeCollaborator', () => {
       username: 'alice',
     });
   });
+});
+
+test('encodes internal repos and custom upstream roles without widening write permissions', async () => {
+  const service = new GitHubReposService();
+  mockPaginate(service, async (_fn, params) =>
+    params.affiliation
+      ? [{ login: 'alice', role_name: 'security-reviewer' }]
+      : [{ ...makeRepoData('internal-repo'), visibility: 'internal' }],
+  );
+  const repos = await service.listRepos();
+  expect(Schema.encodeSync(Schema.Array(RepoListItem))(repos)[0].visibility).toBe('internal');
+  const direct = await service.listDirectCollaboratorRepos('alice');
+  const result = Schema.encodeSync(UserRepos)({ direct, teams: [] });
+  expect(result.direct[0].permission).toBe('security-reviewer');
+  expect(result.direct[0].visibility).toBe('internal');
+  expect(() => Schema.decodeUnknownSync(RepoPermission)('security-reviewer')).toThrow();
 });

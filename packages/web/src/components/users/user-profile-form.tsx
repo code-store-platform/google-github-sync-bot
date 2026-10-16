@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { ArrowLeft, Github, Mail, User } from 'lucide-react';
+import { ArrowLeft, Mail, User } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { api } from '@/lib/api-client';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { GithubIcon } from '@/components/ui/github-icon';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -145,7 +146,7 @@ export function UserProfileForm({ email }: { email: string }) {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Github className="h-4 w-4 text-muted-foreground" />
+              <GithubIcon className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-sm font-medium">GitHub Username</p>
                 <p className="text-sm text-muted-foreground">

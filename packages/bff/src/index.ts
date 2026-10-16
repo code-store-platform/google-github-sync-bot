@@ -1,28 +1,50 @@
-import { Hono } from 'hono';
+import { BunHttpServer, BunRuntime } from '@effect/platform-bun';
+import { DashboardApi } from '@google-github-sync/shared/api';
+import { Effect, Layer } from 'effect';
+import { HttpRouter } from 'effect/http';
+import { HttpApiBuilder } from 'effect/http-api';
+import { ActivityHandlers } from './handlers/activity';
+import { ReposHandlers } from './handlers/repos';
+import { SyncHandlers } from './handlers/sync';
+import { TeamsHandlers } from './handlers/teams';
+import { UsersHandlers } from './handlers/users';
+import { bearerAuth } from './middleware/auth';
 import { envVars } from './lib/config';
-import { corsMiddleware } from './middleware/cors';
-import { errorHandler } from './middleware/error-handler';
-import { activityRoutes } from './routes/activity';
-import { repoRoutes } from './routes/repos';
-import { syncRoutes } from './routes/sync';
-import { teamRoutes } from './routes/teams';
-import { userRoutes } from './routes/users';
+import { GitHubMembership } from './services/github-membership';
+import { GitHubRepos } from './services/github-repos';
+import { GitHubTeams } from './services/github-teams';
+import { GoogleWorkspace } from './services/google-workspace';
 
-const api = new Hono();
+const SystemHandlers = HttpApiBuilder.group(DashboardApi, 'system', (handlers) =>
+  handlers.handle('health', () => Effect.succeed('ok')),
+);
 
-api.use('*', corsMiddleware);
-api.onError(errorHandler);
+const ApiRoutes = HttpApiBuilder.layer(DashboardApi).pipe(
+  Layer.provide(bearerAuth(envVars.API_AUTH_TOKEN)),
+  Layer.provide([
+    UsersHandlers,
+    TeamsHandlers,
+    ReposHandlers,
+    SyncHandlers,
+    ActivityHandlers,
+    SystemHandlers,
+  ]),
+  Layer.provide([
+    GoogleWorkspace.layer,
+    GitHubMembership.layer,
+    GitHubTeams.layer,
+    GitHubRepos.layer,
+  ]),
+);
 
-api.get('/health', (c) => c.json({ status: 'ok' }));
-api.route('/api/users', userRoutes);
-api.route('/api/teams', teamRoutes);
-api.route('/api/repos', repoRoutes);
-api.route('/api/sync', syncRoutes);
-api.route('/api/activity', activityRoutes);
-
-Bun.serve({
-  port: Number(envVars.API_PORT),
-  fetch: api.fetch,
+const Cors = HttpRouter.cors({
+  allowedOrigins: [envVars.CORS_ORIGIN],
+  allowedMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 });
 
-console.log(`BFF server running on port ${envVars.API_PORT}`);
+const Server = HttpRouter.serve(Layer.mergeAll(ApiRoutes, Cors)).pipe(
+  Layer.provide(BunHttpServer.layer({ port: envVars.API_PORT })),
+);
+
+Layer.launch(Server).pipe(BunRuntime.runMain);

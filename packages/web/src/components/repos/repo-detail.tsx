@@ -143,7 +143,10 @@ function RepoInfoCard({
       return api.updateRepo(name, {
         description: editDescription,
         homepage: editHomepage,
-        visibility: editVisibility,
+        visibility:
+          editVisibility === repo.visibility || editVisibility === 'internal'
+            ? undefined
+            : editVisibility,
         archived: editArchived,
         topics,
       });
@@ -209,15 +212,11 @@ function RepoInfoCard({
           </div>
           <div className="space-y-1 text-sm">
             <p className="font-medium">Created</p>
-            <p className="text-muted-foreground">
-              {formatDate(repo.createdAt)}
-            </p>
+            <p className="text-muted-foreground">{formatDate(repo.createdAt)}</p>
           </div>
           <div className="space-y-1 text-sm">
             <p className="font-medium">Last updated</p>
-            <p className="text-muted-foreground">
-              {formatDate(repo.updatedAt)}
-            </p>
+            <p className="text-muted-foreground">{formatDate(repo.updatedAt)}</p>
           </div>
 
           <Separator />
@@ -271,6 +270,17 @@ function RepoInfoCard({
                 >
                   Private
                 </Button>
+                {repo.visibility === 'internal' && (
+                  <Button
+                    type="button"
+                    variant={editVisibility === 'internal' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setEditVisibility('internal')}
+                    disabled={isFieldsDisabled}
+                  >
+                    Internal
+                  </Button>
+                )}
               </div>
             </div>
             <div className="space-y-2">
@@ -382,7 +392,10 @@ function RepoTeamsCard({
     mutationFn: () => api.addRepoTeamAccess(name, teamSlug.trim(), permission),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['repo-teams', name] });
-      toast({ title: 'Team access added', description: `${teamSlug} now has ${permission} access.` });
+      toast({
+        title: 'Team access added',
+        description: `${teamSlug} now has ${permission} access.`,
+      });
       setTeamSlug('');
       setPermission('push');
     },

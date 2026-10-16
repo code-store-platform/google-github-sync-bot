@@ -1,143 +1,17 @@
-export type UserStatus = 'member' | 'pending_invite' | 'not_linked' | 'linked_not_in_org';
-
-export type UserListItem = {
-  email: string;
-  name: string | null;
-  githubUsername: string | null;
-  status: UserStatus;
-  avatarUrl: string | null;
-  suspended: boolean;
-};
-
-export type UserDetail = {
-  email: string;
-  name: string | null;
-  givenName: string | null;
-  familyName: string | null;
-  githubUsername: string | null;
-  status: UserStatus;
-  avatarUrl: string | null;
-  suspended: boolean;
-};
-
-// ── Activity ──────────────────────────────────────────────────────────────────
-
-export type ActivityType = 'sync' | 'action';
-
-export type ActivityEntry = {
-  id: string;
-  type: ActivityType;
-  timestamp: string;
-  trigger: string;
-  summary: string;
-  details: unknown;
-};
-
-export type ActivityResponse = {
-  items: ActivityEntry[];
-  page: number;
-  limit: number;
-  totalCount: number;
-};
-
-type SyncJobStatus = 'pending' | 'running' | 'completed' | 'failed';
-
-export type SyncJob = {
-  id: string;
-  type: string;
-  status: SyncJobStatus;
-  triggeredBy: string;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  result: unknown;
-};
-
-// ── Teams ────────────────────────────────────────────────────────────────────
-
-export type TeamPrivacy = 'closed' | 'secret';
-export type TeamMemberRole = 'member' | 'maintainer';
-
-export type TeamListItem = {
-  id: number;
-  slug: string;
-  name: string;
-  description: string | null;
-  privacy: TeamPrivacy;
-  membersCount: number;
-  reposCount: number;
-  htmlUrl: string;
-};
-
-export type TeamDetail = TeamListItem & {
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type TeamMember = {
-  login: string;
-  id: number;
-  avatarUrl: string;
-  role: TeamMemberRole;
-  htmlUrl: string;
-};
-
-export type UserTeamMembership = TeamListItem & {
-  role: TeamMemberRole;
-};
-
-// ── Repos ───────────────────────────────────────────────────────────────────
-
-export type RepoVisibility = 'public' | 'private';
-export type RepoTeamPermission = 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
-
-export type RepoListItem = {
-  id: number;
-  name: string;
-  fullName: string;
-  description: string | null;
-  visibility: RepoVisibility;
-  language: string | null;
-  stargazersCount: number;
-  forksCount: number;
-  openIssuesCount: number;
-  updatedAt: string;
-  htmlUrl: string;
-  archived: boolean;
-};
-
-export type RepoDetail = RepoListItem & {
-  defaultBranch: string;
-  homepage: string | null;
-  topics: string[];
-  createdAt: string;
-  license: string | null;
-};
-
-export type RepoTeam = {
-  id: number;
-  slug: string;
-  name: string;
-  permission: RepoTeamPermission;
-  htmlUrl: string;
-};
-
-type CollaboratorRepo = {
-  name: string;
-  fullName: string;
-  description: string | null;
-  visibility: RepoVisibility;
-  htmlUrl: string;
-  archived: boolean;
-  permission: RepoTeamPermission;
-};
-
-type TeamRepoAccess = CollaboratorRepo & {
-  teamSlug: string;
-  teamName: string;
-};
-
-export type UserReposResponse = {
-  direct: CollaboratorRepo[];
-  teams: TeamRepoAccess[];
-};
+// Types are derived from the shared API contract the BFF implements
+export type {
+  ActivityEntry,
+  ActivityType,
+  RepoListItem,
+  RepoPermission as RepoTeamPermission,
+  RepoVisibility,
+  RepoWriteVisibility,
+  TeamListItem,
+  TeamMemberRole,
+  TeamPrivacy,
+  UserDetail,
+  UserListItem,
+  UserRepos as UserReposResponse,
+  UserStatus,
+  UserTeamMembership,
+} from '@google-github-sync/shared/api';

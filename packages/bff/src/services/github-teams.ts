@@ -1,3 +1,4 @@
+import { Context, Layer } from 'effect';
 import { Octokit } from 'octokit';
 import { envVars } from '../lib/config';
 
@@ -204,4 +205,10 @@ export class GitHubTeamsService {
       )
       .map((r) => r.value);
   }
+}
+
+export class GitHubTeams extends Context.Service<GitHubTeams, GitHubTeamsService>()(
+  'bff/GitHubTeams',
+) {
+  static readonly layer = Layer.sync(GitHubTeams, () => new GitHubTeamsService());
 }

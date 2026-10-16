@@ -1,9 +1,13 @@
 {
+  "$schema": "../../node_modules/@effect/tsgo/schema.json",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "plugins": [
       {
-        "name": "@effect/language-service"
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "unstableApiUsage": "off"
+        }
       }
     ]
   },

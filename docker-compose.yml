@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     ports:
       - "5432:5432"
     environment:
@@ -8,7 +8,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: dashboard
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ keeps data in a version-specific subdirectory of this path
+      - pgdata18:/var/lib/postgresql
 
 volumes:
-  pgdata:
+  pgdata18:

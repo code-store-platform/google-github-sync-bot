@@ -18,7 +18,7 @@ const MainLayer = Layer.mergeAll(
   SyncJobRepoLive,
 );
 
-const AppLayer = MainLayer.pipe(Layer.merge(Logger.pretty));
+const AppLayer = MainLayer.pipe(Layer.merge(Logger.layer([Logger.consolePretty()])));
 
 // -- Cron: create GitHub sync jobs on schedule --
 function startCronJobs() {
@@ -53,12 +53,10 @@ function startCronJobs() {
       try {
         const getUsers = Effect.gen(function* () {
           const google = yield* GoogleWorkspaceService;
-          return yield* google.getUsers();
+          return yield* google.getUsers;
         });
 
-        const workspaceUsers = await Effect.runPromise(
-          getUsers.pipe(Effect.provide(MainLayer)),
-        );
+        const workspaceUsers = await Effect.runPromise(getUsers.pipe(Effect.provide(MainLayer)));
 
         atlassianSync.clearCache();
         await atlassianSync.syncSuspensions(workspaceUsers);
@@ -80,7 +78,7 @@ function startCronJobs() {
 const main = Effect.gen(function* () {
   yield* Effect.log('Worker starting...');
 
-  // Start job processor (LISTEN/NOTIFY + polling)
+  // Start job processor (5-second polling)
   yield* startJobProcessor;
 
   yield* Effect.log('Worker ready');
@@ -93,11 +91,6 @@ const main = Effect.gen(function* () {
 startCronJobs();
 
 // Run the main Effect program
-Effect.runFork(
-  main.pipe(
-    Effect.provide(AppLayer),
-    Effect.scoped,
-  ),
-);
+Effect.runFork(main.pipe(Effect.provide(AppLayer), Effect.scoped));
 
 console.log('Worker process started');

@@ -1,3 +1,9 @@
+import type {
+  RepoVisibility,
+  RepoWriteVisibility,
+  RepoPermission,
+} from '@google-github-sync/shared/api';
+import { Context, Layer } from 'effect';
 import { Octokit } from 'octokit';
 import { envVars } from '../lib/config';
 
@@ -6,7 +12,7 @@ export type GitHubRepo = {
   name: string;
   fullName: string;
   description: string | null;
-  visibility: 'public' | 'private';
+  visibility: RepoVisibility;
   language: string | null;
   stargazersCount: number;
   forksCount: number;
@@ -28,7 +34,7 @@ export type GitHubRepoTeam = {
   id: number;
   slug: string;
   name: string;
-  permission: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+  permission: string;
   htmlUrl: string;
 };
 
@@ -36,20 +42,20 @@ export type GitHubCollaboratorRepo = {
   name: string;
   fullName: string;
   description: string | null;
-  visibility: 'public' | 'private';
+  visibility: RepoVisibility;
   htmlUrl: string;
   archived: boolean;
-  permission: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+  permission: string;
 };
 
 export type GitHubTeamRepoAccess = {
   name: string;
   fullName: string;
   description: string | null;
-  visibility: 'public' | 'private';
+  visibility: RepoVisibility;
   htmlUrl: string;
   archived: boolean;
-  permission: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+  permission: string;
   teamSlug: string;
   teamName: string;
 };
@@ -62,7 +68,7 @@ function normalizePermission(role: string): GitHubCollaboratorRepo['permission']
     case 'write':
       return 'push';
     default:
-      return role as GitHubCollaboratorRepo['permission'];
+      return role;
   }
 }
 
@@ -88,7 +94,7 @@ export class GitHubReposService {
       name: r.name,
       fullName: r.full_name,
       description: r.description ?? null,
-      visibility: (r.visibility as 'public' | 'private') || (r.private ? 'private' : 'public'),
+      visibility: (r.visibility as RepoVisibility) || (r.private ? 'private' : 'public'),
       language: r.language ?? null,
       stargazersCount: r.stargazers_count ?? 0,
       forksCount: r.forks_count ?? 0,
@@ -110,7 +116,7 @@ export class GitHubReposService {
       name: r.name,
       fullName: r.full_name,
       description: r.description ?? null,
-      visibility: (r.visibility as 'public' | 'private') || (r.private ? 'private' : 'public'),
+      visibility: (r.visibility as RepoVisibility) || (r.private ? 'private' : 'public'),
       language: r.language ?? null,
       stargazersCount: r.stargazers_count ?? 0,
       forksCount: r.forks_count ?? 0,
@@ -131,7 +137,7 @@ export class GitHubReposService {
     params: {
       description?: string;
       homepage?: string;
-      visibility?: 'public' | 'private';
+      visibility?: RepoWriteVisibility;
       archived?: boolean;
     },
   ): Promise<GitHubRepoDetail> {
@@ -146,7 +152,7 @@ export class GitHubReposService {
       name: r.name,
       fullName: r.full_name,
       description: r.description ?? null,
-      visibility: (r.visibility as 'public' | 'private') || (r.private ? 'private' : 'public'),
+      visibility: (r.visibility as RepoVisibility) || (r.private ? 'private' : 'public'),
       language: r.language ?? null,
       stargazersCount: r.stargazers_count ?? 0,
       forksCount: r.forks_count ?? 0,
@@ -188,11 +194,7 @@ export class GitHubReposService {
     }));
   }
 
-  async addTeamAccess(
-    name: string,
-    teamSlug: string,
-    permission: GitHubRepoTeam['permission'],
-  ): Promise<void> {
+  async addTeamAccess(name: string, teamSlug: string, permission: RepoPermission): Promise<void> {
     await this.octokit.rest.teams.addOrUpdateRepoPermissionsInOrg({
       org: this.orgName,
       team_slug: teamSlug,
@@ -228,9 +230,7 @@ export class GitHubReposService {
           },
         );
 
-        const match = collaborators.find(
-          (c) => c.login.toLowerCase() === username.toLowerCase(),
-        );
+        const match = collaborators.find((c) => c.login.toLowerCase() === username.toLowerCase());
         if (!match) throw new Error('Not a direct collaborator');
 
         const permission = normalizePermission(match.role_name ?? 'pull');
@@ -247,9 +247,7 @@ export class GitHubReposService {
     );
 
     return results
-      .filter(
-        (r): r is PromiseFulfilledResult<GitHubCollaboratorRepo> => r.status === 'fulfilled',
-      )
+      .filter((r): r is PromiseFulfilledResult<GitHubCollaboratorRepo> => r.status === 'fulfilled')
       .map((r) => r.value);
   }
 
@@ -271,8 +269,7 @@ export class GitHubReposService {
             name: r.name,
             fullName: r.full_name,
             description: r.description ?? null,
-            visibility:
-              (r.visibility as 'public' | 'private') || (r.private ? 'private' : 'public'),
+            visibility: (r.visibility as RepoVisibility) || (r.private ? 'private' : 'public'),
             htmlUrl: r.html_url,
             archived: r.archived ?? false,
             permission: normalizePermission(r.role_name ?? 'push'),
@@ -289,7 +286,7 @@ export class GitHubReposService {
   async addCollaborator(
     repoName: string,
     username: string,
-    permission: GitHubCollaboratorRepo['permission'],
+    permission: RepoPermission,
   ): Promise<void> {
     await this.octokit.rest.repos.addCollaborator({
       owner: this.orgName,
@@ -306,4 +303,10 @@ export class GitHubReposService {
       username,
     });
   }
+}
+
+export class GitHubRepos extends Context.Service<GitHubRepos, GitHubReposService>()(
+  'bff/GitHubRepos',
+) {
+  static readonly layer = Layer.sync(GitHubRepos, () => new GitHubReposService());
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
-import { GitHubError } from '../lib/errors';
+import { listAllGoogleUsers } from '@google-github-sync/shared/google-pagination';
+import { GitHubError, GoogleWorkspaceError } from '../lib/errors';
 import { GitHubService } from './github';
 import { GoogleWorkspaceService } from './google-workspace';
 import { SyncJobRepo } from './sync-job-repo';
@@ -11,7 +12,7 @@ import type { GoogleUser } from './google-workspace';
 
 function makeGoogleLayer(users: GoogleUser[]) {
   return Layer.succeed(GoogleWorkspaceService, {
-    getUsers: () => Effect.succeed(users),
+    getUsers: Effect.succeed(users),
   });
 }
 
@@ -21,8 +22,8 @@ function makeGitHubLayer(
   opts?: { inviteFailFor?: string[]; removeFailFor?: string[] },
 ) {
   return Layer.succeed(GitHubService, {
-    getMemberUsernames: () => Effect.succeed(new Set(members)),
-    getInvitedUsernames: () => Effect.succeed(new Set(invited)),
+    getMemberUsernames: Effect.succeed(new Set(members)),
+    getInvitedUsernames: Effect.succeed(new Set(invited)),
     inviteUser: (username: string) =>
       opts?.inviteFailFor?.includes(username)
         ? Effect.fail(new GitHubError({ message: `API error for ${username}` }))
@@ -38,18 +39,14 @@ function makeGitHubLayer(
 function makeJobRepoLayer() {
   const calls: { method: string; args: unknown[] }[] = [];
   const layer = Layer.succeed(SyncJobRepo, {
-    claimNextJob: () => Effect.succeed(null),
-    markRunning: (jobId: string) => {
-      calls.push({ method: 'markRunning', args: [jobId] });
-      return Effect.succeed(undefined);
-    },
+    claimNextJob: Effect.succeed(null),
     completeJob: (jobId, result) => {
       calls.push({ method: 'completeJob', args: [jobId, result] });
-      return Effect.succeed(undefined);
+      return Effect.void;
     },
     failJob: (jobId, error) => {
       calls.push({ method: 'failJob', args: [jobId, error] });
-      return Effect.succeed(undefined);
+      return Effect.void;
     },
     createJob: (type, triggeredBy) => Effect.succeed({} as never),
     hasPendingOrRunning: (type) => Effect.succeed(false),
@@ -112,11 +109,7 @@ describe('sync engine', () => {
   });
 
   test('removes org member not in workspace', async () => {
-    const result = await run(
-      makeGoogleLayer([]),
-      makeGitHubLayer(['orphan']),
-      makeJobRepoLayer(),
-    );
+    const result = await run(makeGoogleLayer([]), makeGitHubLayer(['orphan']), makeJobRepoLayer());
 
     expect(result.removed).toEqual(['orphan']);
   });
@@ -124,11 +117,7 @@ describe('sync engine', () => {
   test('does not remove user on stop list', async () => {
     // REMOVE_STOP_LIST is read from envVars at runtime — it defaults to []
     // when the env var is not set. We test the default behavior here.
-    const result = await run(
-      makeGoogleLayer([]),
-      makeGitHubLayer(['orphan']),
-      makeJobRepoLayer(),
-    );
+    const result = await run(makeGoogleLayer([]), makeGitHubLayer(['orphan']), makeJobRepoLayer());
 
     expect(result.removed).toEqual(['orphan']);
   });
@@ -147,10 +136,7 @@ describe('sync engine', () => {
 
   test('handles invite failure gracefully', async () => {
     const result = await run(
-      makeGoogleLayer([
-        makeUser('alice@test.com', 'alice'),
-        makeUser('bob@test.com', 'bob'),
-      ]),
+      makeGoogleLayer([makeUser('alice@test.com', 'alice'), makeUser('bob@test.com', 'bob')]),
       makeGitHubLayer([], [], { inviteFailFor: ['alice'] }),
       makeJobRepoLayer(),
     );
@@ -172,16 +158,37 @@ describe('sync engine', () => {
     expect(result.errors[0]).toContain('orphan1');
   });
 
-  test('marks job running then completes', async () => {
+  test('completes an already claimed job', async () => {
     const jobRepo = makeJobRepoLayer();
-    await run(
+    await run(makeGoogleLayer([makeUser('alice@test.com', 'alice')]), makeGitHubLayer(), jobRepo);
+
+    expect(jobRepo.calls.map((call) => call.method)).toEqual(['completeJob']);
+  });
+
+  test('completes with errors when every invite fails', async () => {
+    const jobRepo = makeJobRepoLayer();
+    const result = await run(
       makeGoogleLayer([makeUser('alice@test.com', 'alice')]),
-      makeGitHubLayer(),
+      makeGitHubLayer([], [], { inviteFailFor: ['alice'] }),
       jobRepo,
     );
+    expect(result.invited).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(jobRepo.calls.map((call) => call.method)).toEqual(['completeJob']);
+    expect(jobRepo.calls[0].args[1]).toMatchObject({ errorCount: 1, invitedCount: 0 });
+  });
 
-    expect(jobRepo.calls[0]).toEqual({ method: 'markRunning', args: ['test-job-id'] });
-    expect(jobRepo.calls[1].method).toBe('completeJob');
+  test('completes with errors when every removal fails', async () => {
+    const jobRepo = makeJobRepoLayer();
+    const result = await run(
+      makeGoogleLayer([]),
+      makeGitHubLayer(['orphan'], [], { removeFailFor: ['orphan'] }),
+      jobRepo,
+    );
+    expect(result.removed).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(jobRepo.calls.map((call) => call.method)).toEqual(['completeJob']);
+    expect(jobRepo.calls[0].args[1]).toMatchObject({ errorCount: 1, removedCount: 0 });
   });
 
   test('normalizes username case for matching', async () => {
@@ -195,4 +202,36 @@ describe('sync engine', () => {
     expect(result.invited).toEqual([]);
     expect(result.removed).toEqual([]);
   });
+});
+
+test('never removes members if fetching a later Google page fails', async () => {
+  const jobRepo = makeJobRepoLayer();
+  const google = Layer.succeed(GoogleWorkspaceService, {
+    getUsers: Effect.tryPromise({
+      try: () =>
+        listAllGoogleUsers<GoogleUser>(async (token) => {
+          if (token) throw new Error('Page 2 unavailable');
+          return { users: [makeUser('alice@test.com', 'alice')], nextPageToken: 'page2' };
+        }),
+      catch: () => new GoogleWorkspaceError({ message: 'Incomplete directory' }),
+    }),
+  });
+  let removals = 0;
+  const github = Layer.succeed(GitHubService, {
+    getMemberUsernames: Effect.succeed(new Set(['alice', 'bob'])),
+    getInvitedUsernames: Effect.succeed(new Set<string>()),
+    inviteUser: () => Effect.void,
+    removeMember: () =>
+      Effect.sync(() => {
+        removals++;
+      }),
+    getUserId: () => Effect.succeed(1),
+  });
+  await Effect.runPromise(
+    processGitHubSync('test-job-id').pipe(
+      Effect.provide(Layer.mergeAll(google, github, jobRepo.layer)),
+    ),
+  );
+  expect(removals).toBe(0);
+  expect(jobRepo.calls.map((call) => call.method)).toEqual(['failJob']);
 });

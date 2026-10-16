@@ -11,7 +11,7 @@ export type SlackBlock = {
   };
 };
 
-export class SlackNotificationService extends Context.Tag('SlackNotificationService')<
+export class SlackNotificationService extends Context.Service<
   SlackNotificationService,
   {
     readonly sendNotification: (params: {
@@ -21,7 +21,7 @@ export class SlackNotificationService extends Context.Tag('SlackNotificationServ
     }) => Effect.Effect<void, SlackError>;
     readonly isEnabled: boolean;
   }
->() {}
+>()('SlackNotificationService') {}
 
 export const SlackNotificationServiceLive = Layer.sync(SlackNotificationService, () => {
   const token = envVars.SLACK_BOT_TOKEN;

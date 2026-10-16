@@ -11,20 +11,21 @@ Google-GitHub Sync is an open-source tool that synchronizes Google Workspace use
 ```
 /
 ├── packages/
-│   ├── shared/          # Shared DB schema, types, utils
+│   ├── shared/          # Shared DB schema, API contract, types, utils
 │   │   └── src/
+│   │       ├── api/               # Effect HttpApi contract (schemas, errors, endpoints) shared by BFF + web
 │   │       ├── db/schema.ts       # Drizzle ORM schema (audit_log, sync_history, sync_jobs)
 │   │       ├── db/index.ts        # DB client factory (createDb)
 │   │       ├── utils.ts           # normalizeGitHubUsername, normalizeEmail
 │   │       └── index.ts           # Barrel export
-│   ├── bff/             # Hono API for the dashboard (Process 1)
+│   ├── bff/             # Effect HttpApi server for the dashboard (Process 1)
 │   │   └── src/
-│   │       ├── index.ts           # Hono server entry
-│   │       ├── lib/config.ts      # BFF-specific config (Zod validation)
+│   │       ├── index.ts           # Server entry (BunHttpServer, CORS, handler layers)
+│   │       ├── lib/config.ts      # BFF-specific config (Effect Config, read once at startup)
+│   │       ├── lib/effect.ts      # upstream()/dbQuery()/recordAudit() helpers
 │   │       ├── db/index.ts        # DB client instance
-│   │       ├── middleware/         # CORS, error handler
-│   │       ├── routes/            # API routes (users, teams, repos, sync)
-│   │       └── services/          # Google Workspace, GitHub teams/repos/membership
+│   │       ├── handlers/          # HttpApi group handlers (users, teams, repos, sync, activity)
+│   │       └── services/          # Google Workspace, GitHub teams/repos/membership (+ Effect service tags)
 │   ├── worker/          # Effect.ts sync engine (Process 2)
 │   │   └── src/
 │   │       ├── index.ts           # Worker entry (job processor + cron)
@@ -36,7 +37,7 @@ Google-GitHub Sync is an open-source tool that synchronizes Google Workspace use
 │           ├── app/               # Next.js App Router pages
 │           ├── components/        # React components (layout, users, teams, repos, ui)
 │           ├── hooks/             # Custom hooks (use-toast)
-│           └── lib/               # API client, types, utils
+│           └── lib/               # API client (generated from shared/api), types, utils
 ├── docs/                # Architecture documentation
 ├── package.json         # Bun workspace root
 ├── biome.json           # Shared linter/formatter
@@ -58,14 +59,14 @@ bun run dev
 
 **Start individually:**
 ```bash
-bun run dev:bff      # Hono API on port 4000
+bun run dev:bff      # BFF API on port 4000
 bun run dev:worker   # Sync worker
 bun run dev:web      # Next.js on port 3001
 ```
 
 **Database:**
 ```bash
-docker compose up -d          # Start PostgreSQL
+docker compose up -d          # Start PostgreSQL 18
 bun run db:push               # Push schema to DB
 bun run db:studio             # Open Drizzle Studio
 ```
@@ -78,6 +79,11 @@ bun run format
 **Lint code:**
 ```bash
 bun run lint
+```
+
+**Typecheck:**
+```bash
+bun run typecheck
 ```
 
 **Run tests:**
@@ -93,8 +99,8 @@ bun test --recursive
 
 The system is split into two backend processes sharing the same PostgreSQL database:
 
-- **BFF** (`packages/bff`): Stateless Hono API serving the dashboard. Handles user CRUD, team/repo management (direct GitHub API calls), audit logging, and enqueuing sync jobs.
-- **Worker** (`packages/worker`): Effect.ts-based sync engine. Picks up jobs from `sync_jobs` table via Postgres LISTEN/NOTIFY + polling fallback. Runs cron-scheduled syncs. Sends Slack notifications.
+- **BFF** (`packages/bff`): Stateless Effect `HttpApi` server serving the dashboard. Implements the contract in `packages/shared/src/api`; the web app's client is generated from the same contract. Handles user CRUD, team/repo management (direct GitHub API calls), audit logging, and enqueuing sync jobs.
+- **Worker** (`packages/worker`): Effect.ts-based sync engine. Picks up jobs from `sync_jobs` table by polling every five seconds. Runs cron-scheduled syncs. Sends Slack notifications.
 
 Communication: BFF writes to `sync_jobs` table, worker picks up and processes jobs. No direct HTTP calls between them.
 
@@ -129,7 +135,7 @@ Schema lives in `packages/shared/src/db/schema.ts`:
 - Uses service account credentials with domain-wide delegation
 - Requires `admin.directory.user` scope (read + write)
 - Impersonates admin user via `subject` field
-- Fetches up to 300 users with custom schema projection
+- Fetches all user pages (300 per page) with custom schema projection; any page failure aborts the snapshot
 - GitHub usernames stored in `customSchemas['3rd-party_tools'].GitHub_Username`
 
 **GitHub Integration:**
@@ -141,11 +147,10 @@ Schema lives in `packages/shared/src/db/schema.ts`:
 
 **Sync Job Flow:**
 1. BFF inserts row into `sync_jobs` (status: `pending`)
-2. BFF sends `NOTIFY sync_jobs_channel` to Postgres
-3. Worker picks up job, sets status to `running`
-4. Worker executes sync (Google -> GitHub diff, invite/remove)
-5. Worker writes result to `sync_history`, updates `sync_jobs` status
-6. Dashboard polls `GET /api/sync/jobs/:id` for status
+2. Worker atomically claims the oldest pending job and sets its status to `running`
+3. Worker executes sync (Google -> GitHub diff, invite/remove)
+4. Worker writes result to `sync_history`, updates `sync_jobs` status
+5. Dashboard polls `GET /api/sync/jobs/:id` for status
 
 **Remove Stop List:**
 - `REMOVE_STOP_LIST` env var: comma-separated GitHub usernames never removed from org
@@ -160,7 +165,10 @@ Schema lives in `packages/shared/src/db/schema.ts`:
 
 Each package validates only its own required env vars. The `.env` file lives at the monorepo root.
 
+**Authentication:** Browser requests go through the same-origin Next.js API proxy. Dashboard Basic Auth uses `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` (minimum 16 characters); BFF bearer auth uses `API_AUTH_TOKEN` (minimum 32 characters). Web reads `BFF_URL` server-side. No credentials belong in `NEXT_PUBLIC_*`. Set `CORS_ORIGIN` to the external dashboard origin for CSRF protection.
+
 **BFF env vars:**
+- `API_AUTH_TOKEN`: Shared server-only token; required, no default
 - `GOOGLE_APPLICATION_CREDENTIALS`: JSON string of service account credentials
 - `GOOGLE_ADMIN_EMAIL`: Admin email to impersonate
 - `GITHUB_TOKEN`: GitHub personal access token with org admin permissions
@@ -183,9 +191,10 @@ Each package validates only its own required env vars. The `.env` file lives at 
 
 ## Runtime
 
-- Built for Bun runtime (not Node.js)
-- Uses TypeScript with strict mode enabled
+- Built for Bun runtime (not Node.js), pinned via `packageManager` in root `package.json`
+- Uses TypeScript 7 (native compiler) with strict mode enabled
+- Effect diagnostics come from `@effect/tsgo`, patched into `tsc` by the `prepare` script; Effect warnings fail `bun run typecheck`
 - No build step required for BFF/worker (noEmit: true in tsconfig)
-- Next.js uses standard build process
-- Worker uses Effect.ts for structured concurrency, typed errors, and service layers
+- Next.js uses standard build process; it transpiles `@google-github-sync/shared` (web imports only `shared/api`, never the DB barrel)
+- Worker and BFF use Effect 4 for structured concurrency, typed errors, and service layers
 - Prefer imports without extensions, DO NOT use .js extensions in import paths

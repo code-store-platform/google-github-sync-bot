@@ -30,7 +30,3 @@ export class SlackError extends Data.TaggedError('SlackError')<{
 export class SyncJobError extends Data.TaggedError('SyncJobError')<{
   message: string;
 }> {}
-
-export class JobProcessorError extends Data.TaggedError('JobProcessorError')<{
-  message: string;
-}> {}

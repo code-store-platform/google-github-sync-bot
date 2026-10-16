@@ -341,7 +341,7 @@ function TeamMembersCard({
   members: Awaited<ReturnType<typeof api.getTeamMembers>>;
   membersError: Error | null;
   workspaceLookup: Map<string, { email: string; name: string | null }>;
-  workspaceUsers: import('@/lib/types').UserListItem[];
+  workspaceUsers: readonly import('@/lib/types').UserListItem[];
   toast: ReturnType<typeof useToast>['toast'];
   queryClient: ReturnType<typeof useQueryClient>;
 }) {

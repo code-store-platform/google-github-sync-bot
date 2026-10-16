@@ -6,7 +6,11 @@
     ".": "./src/index.ts",
     "./db": "./src/db/index.ts",
     "./db/schema": "./src/db/schema.ts",
-    "./utils": "./src/utils.ts"
+    "./db/sync-jobs": "./src/db/sync-jobs.ts",
+    "./utils": "./src/utils.ts",
+    "./api": "./src/api/index.ts",
+    "./google-pagination": "./src/google-pagination.ts",
+    "./server-auth": "./src/server-auth.ts"
   },
   "scripts": {
     "test": "bun test",
@@ -14,10 +18,13 @@
     "db:studio": "bunx drizzle-kit studio"
   },
   "peerDependencies": {
-    "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.5"
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.11"
+  },
+  "dependencies": {
+    "effect": "^4.0.5"
   }
 }

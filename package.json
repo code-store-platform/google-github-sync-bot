@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "workspaces": ["packages/*"],
+  "packageManager": "bun@1.4.3",
   "scripts": {
-    "prepare": "effect-language-service patch",
+    "prepare": "effect-tsgo patch --typescript --no-oxlint",
     "format": "biome format --write",
     "lint": "biome lint",
     "test": "bun test --recursive",
+    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/bff && tsc --noEmit -p packages/worker && tsc --noEmit -p packages/web",
     "dev:bff": "bun run --cwd packages/bff dev",
     "dev:worker": "bun run --cwd packages/worker dev",
     "dev:web": "bun run --cwd packages/web dev",
@@ -17,13 +19,18 @@
     "knip": "knip"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
-    "@effect/language-service": "^0.86.2",
-    "@types/bun": "latest",
-    "@types/node": "^25.9.1",
-    "knip": "^6.15.0"
+    "@biomejs/biome": "^2.5.15",
+    "@effect/tsgo": "^0.53.0",
+    "@types/bun": "^1.4.3",
+    "@types/node": "^26.6.5",
+    "knip": "^6.41.0",
+    "typescript": "7.0.2"
   },
-  "peerDependencies": {
-    "typescript": "^6.0.3"
+  "overrides": {
+    "qs": "6.16.1",
+    "shell-quote": "1.12.0",
+    "baseline-browser-mapping": "2.11.28",
+    "source-map-js": "1.2.2",
+    "esbuild": "0.28.2"
   }
 }

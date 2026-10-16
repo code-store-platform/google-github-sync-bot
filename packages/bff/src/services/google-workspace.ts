@@ -1,3 +1,5 @@
+import { listAllGoogleUsers } from '@google-github-sync/shared/google-pagination';
+import { Context, Layer } from 'effect';
 import { google } from 'googleapis';
 import { envVars } from '../lib/config';
 
@@ -17,7 +19,7 @@ export type GoogleUser = {
   } | null;
 };
 
-export function createGoogleAuth() {
+function createGoogleAuth() {
   return new google.auth.GoogleAuth({
     credentials: JSON.parse(envVars.GOOGLE_APPLICATION_CREDENTIALS),
     scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
@@ -37,30 +39,30 @@ function createGoogleAuthReadWrite() {
   });
 }
 
-export async function getWorkspaceUsers(
-  auth: ReturnType<typeof createGoogleAuth>,
-): Promise<GoogleUser[]> {
+async function getWorkspaceUsers(auth: ReturnType<typeof createGoogleAuth>): Promise<GoogleUser[]> {
   const directory = google.admin({
     version: 'directory_v1',
     auth: auth,
   });
 
   try {
-    const response = await directory.users.list({
-      customer: 'my_customer',
-      projection: 'full',
-      viewType: 'admin_view',
-      maxResults: 300,
+    return await listAllGoogleUsers<GoogleUser>(async (pageToken) => {
+      const response = await directory.users.list({
+        customer: 'my_customer',
+        projection: 'full',
+        viewType: 'admin_view',
+        maxResults: 300,
+        pageToken,
+      });
+      return response.data;
     });
-
-    return response.data.users || [];
   } catch (e) {
     console.error('Error fetching Google Workspace users', e);
     throw e;
   }
 }
 
-export async function getWorkspaceUser(
+async function getWorkspaceUser(
   auth: ReturnType<typeof createGoogleAuth>,
   email: string,
 ): Promise<GoogleUser | null> {
@@ -83,7 +85,7 @@ export async function getWorkspaceUser(
   }
 }
 
-export async function updateUserCustomSchema(email: string, githubUsername: string): Promise<void> {
+async function updateUserCustomSchema(email: string, githubUsername: string): Promise<void> {
   const auth = createGoogleAuthReadWrite();
   const directory = google.admin({
     version: 'directory_v1',
@@ -105,4 +107,22 @@ export async function updateUserCustomSchema(email: string, githubUsername: stri
     console.error(`Error updating GitHub username for ${email}`, e);
     throw e;
   }
+}
+
+export class GoogleWorkspace extends Context.Service<
+  GoogleWorkspace,
+  {
+    readonly listUsers: () => Promise<GoogleUser[]>;
+    readonly getUser: (email: string) => Promise<GoogleUser | null>;
+    readonly updateGitHubUsername: (email: string, githubUsername: string) => Promise<void>;
+  }
+>()('bff/GoogleWorkspace') {
+  static readonly layer = Layer.sync(GoogleWorkspace, () => {
+    const auth = createGoogleAuth();
+    return {
+      listUsers: () => getWorkspaceUsers(auth),
+      getUser: (email) => getWorkspaceUser(auth, email),
+      updateGitHubUsername: updateUserCustomSchema,
+    };
+  });
 }

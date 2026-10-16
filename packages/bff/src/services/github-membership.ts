@@ -1,4 +1,5 @@
 import { normalizeGitHubUsername } from '@google-github-sync/shared/utils';
+import { Context, Layer } from 'effect';
 import { Octokit } from 'octokit';
 import { envVars } from '../lib/config';
 
@@ -32,4 +33,10 @@ export class GitHubMembershipService {
         .map((invite) => normalizeGitHubUsername(invite.login || '')),
     );
   }
+}
+
+export class GitHubMembership extends Context.Service<GitHubMembership, GitHubMembershipService>()(
+  'bff/GitHubMembership',
+) {
+  static readonly layer = Layer.sync(GitHubMembership, () => new GitHubMembershipService());
 }

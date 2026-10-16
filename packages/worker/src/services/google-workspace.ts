@@ -1,3 +1,4 @@
+import { listAllGoogleUsers } from '@google-github-sync/shared/google-pagination';
 import { Context, Effect, Layer } from 'effect';
 import { google } from 'googleapis';
 import { describeError, GoogleWorkspaceError } from '../lib/errors';
@@ -19,37 +20,38 @@ export type GoogleUser = {
   } | null;
 };
 
-export class GoogleWorkspaceService extends Context.Tag('GoogleWorkspaceService')<
+export class GoogleWorkspaceService extends Context.Service<
   GoogleWorkspaceService,
   {
-    readonly getUsers: () => Effect.Effect<GoogleUser[], GoogleWorkspaceError>;
+    readonly getUsers: Effect.Effect<GoogleUser[], GoogleWorkspaceError>;
   }
->() {}
+>()('GoogleWorkspaceService') {}
 
 export const GoogleWorkspaceServiceLive = Layer.succeed(GoogleWorkspaceService, {
-  getUsers: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const auth = new google.auth.GoogleAuth({
-          credentials: JSON.parse(envVars.GOOGLE_APPLICATION_CREDENTIALS),
-          scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
-          clientOptions: {
-            subject: envVars.GOOGLE_ADMIN_EMAIL,
-          },
-        });
+  getUsers: Effect.tryPromise({
+    try: async () => {
+      const auth = new google.auth.GoogleAuth({
+        credentials: JSON.parse(envVars.GOOGLE_APPLICATION_CREDENTIALS),
+        scopes: ['https://www.googleapis.com/auth/admin.directory.user.readonly'],
+        clientOptions: {
+          subject: envVars.GOOGLE_ADMIN_EMAIL,
+        },
+      });
 
-        const directory = google.admin({ version: 'directory_v1', auth });
+      const directory = google.admin({ version: 'directory_v1', auth });
 
+      return await listAllGoogleUsers<GoogleUser>(async (pageToken) => {
         const response = await directory.users.list({
           customer: 'my_customer',
           projection: 'full',
           viewType: 'admin_view',
           maxResults: 300,
+          pageToken,
         });
-
-        return (response.data.users || []) as GoogleUser[];
-      },
-      catch: (e) =>
-        new GoogleWorkspaceError({ message: `Failed to fetch users: ${describeError(e)}` }),
-    }),
+        return response.data;
+      });
+    },
+    catch: (e) =>
+      new GoogleWorkspaceError({ message: `Failed to fetch users: ${describeError(e)}` }),
+  }),
 });
